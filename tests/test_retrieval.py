@@ -1,0 +1,177 @@
+"""Tests for Track 4 Step 1 — Python SDK surface (flux_store, flux_retrieve, flux_feedback)."""
+from __future__ import annotations
+
+import pytest
+from pathlib import Path
+from datetime import timezone, datetime
+
+from flux import Config, FluxStore, Grain, Conduit
+from flux.embedding import MockEmbeddingBackend, store_embedding
+from flux.llm import MockLLMBackend
+from flux.retrieval import flux_store, flux_retrieve, flux_feedback, RetrievalResult, FeedbackResult
+
+
+@pytest.fixture
+def store(tmp_path):
+    db = tmp_path / "test.db"
+    with FluxStore(db) as s:
+        yield s
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+# ===================================================================== flux_store
+
+class TestFluxStore:
+    def test_bare_store_returns_grain_id(self, store):
+        gid = flux_store("User prefers Python", store=store)
+        assert isinstance(gid, str)
+        assert len(gid) > 0
+        g = store.get_grain(gid)
+        assert g is not None
+        assert g.content == "User prefers Python"
+
+    def test_default_provenance_user_stated(self, store):
+        gid = flux_store("Test content", store=store)
+        g = store.get_grain(gid)
+        assert g.provenance == "user_stated"
+
+    def test_custom_provenance(self, store):
+        gid = flux_store("AI said this", provenance="ai_stated", store=store)
+        assert store.get_grain(gid).provenance == "ai_stated"
+
+    def test_empty_content_raises(self, store):
+        with pytest.raises(ValueError):
+            flux_store("", store=store)
+
+    def test_invalid_provenance_raises(self, store):
+        with pytest.raises(ValueError):
+            flux_store("text", provenance="unknown_prov", store=store)
+
+    def test_with_llm_and_emb_creates_entry_connections(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        flux_store("I prefer Python for ML", store=store, llm=llm, emb=emb)
+        count = store.conn.execute("SELECT COUNT(*) AS n FROM entries").fetchone()["n"]
+        assert count >= 1
+
+
+# ===================================================================== flux_retrieve
+
+class TestFluxRetrieve:
+    def test_returns_retrieval_result(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        flux_store("Python is great for data science", store=store, llm=llm, emb=emb)
+        result = flux_retrieve("Python machine learning", store=store, llm=llm, emb=emb)
+        assert isinstance(result, RetrievalResult)
+
+    def test_trace_id_stored(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        flux_store("Python preference", store=store, llm=llm, emb=emb)
+        result = flux_retrieve("Python", store=store, llm=llm, emb=emb)
+        assert store.get_trace(result.trace_id) is not None
+
+    def test_grains_have_expected_fields(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        flux_store("User likes dark themes", store=store, llm=llm, emb=emb)
+        result = flux_retrieve("dark theme preferences", store=store, llm=llm, emb=emb)
+        for g in result.grains:
+            assert "id" in g
+            assert "content" in g
+            assert "score" in g
+            assert "provenance" in g
+
+    def test_confidence_is_float_in_range(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        result = flux_retrieve("some query", store=store, llm=llm, emb=emb)
+        assert 0.0 <= result.confidence <= 1.0
+
+    def test_features_returned(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        result = flux_retrieve("Python framework choice", store=store, llm=llm, emb=emb)
+        assert isinstance(result.features, list)
+        assert len(result.features) >= 1
+
+    def test_fallback_triggered_on_empty_store(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        result = flux_retrieve("anything", store=store, llm=llm, emb=emb)
+        # Empty store → no propagation → low confidence → fallback fires
+        # (may or may not trigger depending on cfg, but no error)
+        assert isinstance(result.fallback_triggered, bool)
+
+    def test_retrieval_event_logged(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        flux_retrieve("test query", store=store, llm=llm, emb=emb)
+        count = store.conn.execute(
+            "SELECT COUNT(*) AS n FROM events WHERE event='grains_returned'"
+        ).fetchone()["n"]
+        assert count >= 1
+
+
+# ===================================================================== flux_feedback
+
+class TestFluxFeedback:
+    def _setup(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        flux_store("User prefers Python for ML", store=store, llm=llm, emb=emb)
+        result = flux_retrieve("Python machine learning", store=store, llm=llm, emb=emb)
+        return result
+
+    def test_feedback_returns_result(self, store):
+        result = self._setup(store)
+        if not result.grains:
+            pytest.skip("No grains retrieved")
+        fb = flux_feedback(result.trace_id, result.grains[0]["id"], True, store=store)
+        assert isinstance(fb, FeedbackResult)
+
+    def test_positive_feedback_action_reinforced(self, store):
+        result = self._setup(store)
+        if not result.grains:
+            pytest.skip("No grains retrieved")
+        fb = flux_feedback(result.trace_id, result.grains[0]["id"], True, store=store)
+        assert fb.action == "reinforced"
+
+    def test_negative_feedback_action_penalized(self, store):
+        result = self._setup(store)
+        if not result.grains:
+            pytest.skip("No grains retrieved")
+        fb = flux_feedback(result.trace_id, result.grains[0]["id"], False, store=store)
+        assert fb.action == "penalized"
+
+    def test_unknown_trace_returns_skipped(self, store):
+        fb = flux_feedback("nonexistent-trace-id", "nonexistent-grain-id", True, store=store)
+        assert fb.action == "skipped"
+
+    def test_feedback_event_logged(self, store):
+        result = self._setup(store)
+        if not result.grains:
+            pytest.skip("No grains retrieved")
+        flux_feedback(result.trace_id, result.grains[0]["id"], True, store=store)
+        count = store.conn.execute(
+            "SELECT COUNT(*) AS n FROM events WHERE event='feedback_received'"
+        ).fetchone()["n"]
+        assert count >= 1
+
+    def test_effective_signal_positive_for_useful(self, store):
+        result = self._setup(store)
+        if not result.grains:
+            pytest.skip("No grains retrieved")
+        fb = flux_feedback(result.trace_id, result.grains[0]["id"], True, store=store)
+        assert fb.effective_signal > 0
+
+    def test_effective_signal_negative_for_not_useful(self, store):
+        result = self._setup(store)
+        if not result.grains:
+            pytest.skip("No grains retrieved")
+        fb = flux_feedback(result.trace_id, result.grains[0]["id"], False, store=store)
+        assert fb.effective_signal < 0

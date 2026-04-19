@@ -32,6 +32,9 @@ from .embedding import (
     vector_fallback,
 )
 from .extraction import decompose_query, extract_and_store_grains
+from .retrieval import RetrievalResult, FeedbackResult, flux_retrieve, flux_feedback, flux_store
+from .visualization import export_graphml, export_json, export_dot, subgraph, cluster_view
+from .ops import ConfigWatcher, GracefulShutdown, backup, restore
 
 __all__ = [
     "Cluster",
@@ -61,9 +64,23 @@ __all__ = [
     "effective_weight",
     "expiry_pass",
     "extract_and_store_grains",
+    "ConfigWatcher",
+    "FeedbackResult",
+    "GracefulShutdown",
+    "RetrievalResult",
+    "backup",
+    "cluster_view",
+    "export_dot",
+    "export_graphml",
+    "export_json",
+    "flux_feedback",
     "flux_health",
+    "flux_retrieve",
+    "flux_store",
     "log_event",
     "propagate",
+    "restore",
+    "subgraph",
     "record_entry_cooccurrence",
     "recompute_clusters",
     "retrieval_confidence",
