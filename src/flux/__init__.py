@@ -20,6 +20,9 @@ from .propagation import (
     retrieval_confidence,
 )
 from .storage import FluxStore
+from .decay import cleanup_pass, expiry_pass
+from .clustering import record_entry_cooccurrence, recompute_clusters
+from .promotion import check_promotion, check_promotions_bulk
 
 __all__ = [
     "Cluster",
@@ -37,7 +40,13 @@ __all__ = [
     "PropagationResult",
     "Trace",
     "TraceStep",
+    "check_promotion",
+    "check_promotions_bulk",
+    "cleanup_pass",
     "effective_weight",
+    "expiry_pass",
     "propagate",
+    "record_entry_cooccurrence",
+    "recompute_clusters",
     "retrieval_confidence",
 ]
