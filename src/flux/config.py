@@ -1,13 +1,19 @@
 """Parameter defaults for Flux Memory (Section 5 of the spec).
 
 A single ``Config`` dataclass holds every tunable constant. Section 13.13
-says all parameters must be externally configurable; YAML loader lives in
-Track 5. Until that lands, tests and callers construct ``Config()`` with
-optional overrides to exercise parameter sensitivity.
+says all parameters must be externally configurable via an external YAML
+file. ``Config.from_yaml(path)`` loads overrides on top of the defaults;
+any key in the YAML not present in Config is ignored with a warning rather
+than raising an error, so adding new parameters to a running deployment
+does not break old config files.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, fields
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -93,6 +99,14 @@ class Config:
     # --- Admin channel ---
     PURGE_UNDO_WINDOW_HOURS: float = 24.0
 
+    # --- LLM backend (Track 2, implementation-specific — not in spec §5) ---
+    LLM_BASE_URL: str = "http://localhost:11434"   # Ollama default
+    LLM_MODEL: str = "llama3.1:8b"
+    LLM_TIMEOUT_SECONDS: float = 30.0
+
+    # --- Embedding model (Track 2) ---
+    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
+
     # --- Provenance reinforcement multipliers (Section 7.2) ---
     def provenance_multiplier(self, provenance: str) -> float:
         return {
@@ -108,6 +122,35 @@ class Config:
             "working": self.HALF_LIFE_WORKING_HOURS,
             "ephemeral": self.HALF_LIFE_EPHEMERAL_HOURS,
         }.get(decay_class, self.HALF_LIFE_WORKING_HOURS)
+
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "Config":
+        """Load a Config from a YAML file, overriding defaults.
+
+        Only keys that match Config field names are applied. Unknown keys are
+        logged at WARNING level and skipped so old config files stay compatible
+        after new parameters are added.
+        """
+        import yaml  # deferred import: pyyaml is optional at import time
+
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+
+        raw = yaml.safe_load(path.read_text()) or {}
+        if not isinstance(raw, dict):
+            raise ValueError(f"Config YAML must be a mapping, got {type(raw)}")
+
+        known = {f.name for f in fields(cls)}
+        overrides: dict = {}
+        for key, value in raw.items():
+            if key in known:
+                overrides[key] = value
+            else:
+                logger.warning("flux config: unknown parameter %r ignored", key)
+
+        return cls(**overrides)
 
 
 DEFAULT_CONFIG = Config()
