@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flux-memory"
+version = "0.5.0.dev0"
+description = "Self-organizing retrieval fabric for AI memory"
+requires-python = ">=3.10"
+authors = [{ name = "Harsh" }]
+license = { text = "Proprietary" }
+dependencies = [
+    "networkx>=3.0",
+    "sentence-transformers>=2.0",
+    "numpy",
+    "pyyaml",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+flux = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
