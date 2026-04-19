@@ -35,6 +35,9 @@ from .extraction import decompose_query, extract_and_store_grains
 from .retrieval import RetrievalResult, FeedbackResult, flux_retrieve, flux_feedback, flux_store
 from .visualization import export_graphml, export_json, export_dot, subgraph, cluster_view
 from .ops import ConfigWatcher, GracefulShutdown, backup, restore
+from .expansion import expand_results
+from .shift import ContextShiftDetector
+from .prewarm import prewarm
 
 __all__ = [
     "Cluster",
@@ -65,9 +68,12 @@ __all__ = [
     "expiry_pass",
     "extract_and_store_grains",
     "ConfigWatcher",
+    "ContextShiftDetector",
     "FeedbackResult",
     "GracefulShutdown",
     "RetrievalResult",
+    "expand_results",
+    "prewarm",
     "backup",
     "cluster_view",
     "export_dot",

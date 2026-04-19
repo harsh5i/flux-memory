@@ -24,6 +24,7 @@ from typing import Any
 
 from .config import Config, DEFAULT_CONFIG
 from .embedding import EmbeddingBackend, vector_fallback
+from .expansion import expand_results
 from .extraction import decompose_query, extract_and_store_grains
 from .graph import Grain, Trace, new_id, utcnow
 from .health import log_event
@@ -45,6 +46,7 @@ class RetrievalResult:
     fallback_triggered: bool
     hop_count: int
     features: list[str]
+    expansion_candidates: list[dict] = field(default_factory=list)  # lateral discovery results
 
 
 @dataclass
@@ -181,16 +183,26 @@ def flux_retrieve(
     )
     store.insert_trace(trace)
 
+    # 5. Context expansion (§11.11) — lateral discovery on low-confidence results.
+    expansion_candidates = expand_results(store, result.activated, confidence, cfg, now)
+    if expansion_candidates:
+        log_event(store, "retrieval", "expansion_triggered", {
+            "trace_id": trace.id,
+            "candidates": len(expansion_candidates),
+            "confidence": confidence,
+        }, trace_id=trace.id, now=now)
+
     log_event(store, "retrieval", "grains_returned", {
         "query": query[:200],
         "features": features,
         "grains_count": len(result.activated),
         "hop_count": hop_count,
         "fallback_triggered": fallback_triggered,
+        "expansion_count": len(expansion_candidates),
         "trace_id": trace.id,
     }, trace_id=trace.id, now=now)
 
-    # 5. Build response.
+    # 6. Build response.
     grains_out = []
     for grain_id, score in result.activated:
         g = store.get_grain(grain_id)
@@ -202,6 +214,7 @@ def flux_retrieve(
             "provenance": g.provenance,
             "decay_class": g.decay_class,
             "score": score,
+            "source": "propagation",
         })
 
     return RetrievalResult(
@@ -211,6 +224,7 @@ def flux_retrieve(
         fallback_triggered=fallback_triggered,
         hop_count=hop_count,
         features=features,
+        expansion_candidates=expansion_candidates,
     )
 
 
