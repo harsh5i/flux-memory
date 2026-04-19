@@ -12,6 +12,13 @@ from .graph import (
     Provenance,
     Trace,
 )
+from .propagation import (
+    PropagationResult,
+    TraceStep,
+    effective_weight,
+    propagate,
+    retrieval_confidence,
+)
 from .storage import FluxStore
 
 __all__ = [
@@ -27,5 +34,10 @@ __all__ = [
     "GrainDecayClass",
     "GrainStatus",
     "Provenance",
+    "PropagationResult",
     "Trace",
+    "TraceStep",
+    "effective_weight",
+    "propagate",
+    "retrieval_confidence",
 ]
