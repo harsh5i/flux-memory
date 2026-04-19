@@ -1,4 +1,5 @@
 """Flux Memory — a self-organizing retrieval fabric for AI memory."""
+from .config import DEFAULT_CONFIG, Config
 from .graph import (
     Cluster,
     Conduit,
@@ -18,6 +19,8 @@ __all__ = [
     "Conduit",
     "ConduitDecayClass",
     "ConduitDirection",
+    "Config",
+    "DEFAULT_CONFIG",
     "Entry",
     "FluxStore",
     "Grain",
