@@ -139,6 +139,21 @@ class FluxStore:
         ).fetchone()
         return _row_to_conduit(row) if row else None
 
+    def conduit_between(self, a: str, b: str) -> Conduit | None:
+        """Directionless lookup: returns the conduit connecting ``a`` and ``b``
+        regardless of which endpoint was stored as from/to. Shortcuts are created
+        bidirectional but persisted with sorted endpoints, so reinforce-path
+        lookups and tests shouldn't have to track that detail."""
+        row = self.conn.execute(
+            """
+            SELECT * FROM conduits
+            WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)
+            LIMIT 1
+            """,
+            (a, b, b, a),
+        ).fetchone()
+        return _row_to_conduit(row) if row else None
+
     def outgoing_conduits(self, from_id: str) -> list[Conduit]:
         rows = self.conn.execute(
             "SELECT * FROM conduits WHERE from_id = ?", (from_id,)
@@ -150,6 +165,67 @@ class FluxStore:
             "SELECT * FROM conduits WHERE to_id = ?", (to_id,)
         ).fetchall()
         return [_row_to_conduit(r) for r in rows]
+
+    def edges_of(self, grain_id: str) -> list[Conduit]:
+        """All conduits attached to a grain (incoming + outgoing). Used for the
+        MAX_EDGES_PER_GRAIN cap and weakest-edge eviction in Section 4.3."""
+        rows = self.conn.execute(
+            "SELECT * FROM conduits WHERE from_id = ? OR to_id = ?",
+            (grain_id, grain_id),
+        ).fetchall()
+        return [_row_to_conduit(r) for r in rows]
+
+    def count_edges(self, grain_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM conduits WHERE from_id = ? OR to_id = ?",
+            (grain_id, grain_id),
+        ).fetchone()
+        return int(row["n"])
+
+    def update_conduit_weight(
+        self, conduit_id: str, weight: float, last_used, use_count: int | None = None
+    ) -> None:
+        """Write-time weight update (Section 4.5). Callers are expected to have
+        computed the target weight from effective_weight() already."""
+        if use_count is None:
+            self.conn.execute(
+                "UPDATE conduits SET weight = ?, last_used = ? WHERE id = ?",
+                (weight, iso(last_used), conduit_id),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE conduits SET weight = ?, last_used = ?, use_count = ? WHERE id = ?",
+                (weight, iso(last_used), use_count, conduit_id),
+            )
+
+    def delete_conduit(self, conduit_id: str) -> None:
+        self.conn.execute("DELETE FROM conduits WHERE id = ?", (conduit_id,))
+
+    # ---------------------------------------------------- co-retrieval counts
+    def increment_co_retrieval(self, grain_a: str, grain_b: str, delta: int = 1) -> int:
+        """Canonicalize (lower, higher) then UPSERT count += delta. Returns new count."""
+        a, b = sorted([grain_a, grain_b])
+        self.conn.execute(
+            """
+            INSERT INTO co_retrieval_counts (grain_a, grain_b, count)
+            VALUES (?, ?, ?)
+            ON CONFLICT(grain_a, grain_b) DO UPDATE SET count = count + excluded.count
+            """,
+            (a, b, delta),
+        )
+        row = self.conn.execute(
+            "SELECT count FROM co_retrieval_counts WHERE grain_a = ? AND grain_b = ?",
+            (a, b),
+        ).fetchone()
+        return int(row["count"])
+
+    def get_co_retrieval_count(self, grain_a: str, grain_b: str) -> int:
+        a, b = sorted([grain_a, grain_b])
+        row = self.conn.execute(
+            "SELECT count FROM co_retrieval_counts WHERE grain_a = ? AND grain_b = ?",
+            (a, b),
+        ).fetchone()
+        return int(row["count"]) if row else 0
 
     # ------------------------------------------------------------------ entries
     def insert_entry(self, entry: Entry) -> None:
@@ -169,6 +245,13 @@ class FluxStore:
             "SELECT * FROM entries WHERE feature = ?", (feature,)
         ).fetchone()
         return _row_to_entry(row) if row else None
+
+    def update_entry_affinities(self, entry_id: str, affinities: dict[str, float]) -> None:
+        """Persist the affinity map after reinforce/penalize has sharpened or dampened it."""
+        self.conn.execute(
+            "UPDATE entries SET affinities = ? WHERE id = ?",
+            (json.dumps(affinities), entry_id),
+        )
 
     # ----------------------------------------------------------------- clusters
     def insert_cluster(self, cluster: Cluster) -> None:

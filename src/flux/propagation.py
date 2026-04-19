@@ -41,12 +41,24 @@ class PropagationResult:
 
 
 # ----------------------------------------------------------------- lazy decay
-def effective_weight(conduit: Conduit, cfg: Config = DEFAULT_CONFIG, now: datetime | None = None) -> float:
+def effective_weight(
+    conduit: Conduit,
+    cfg: Config = DEFAULT_CONFIG,
+    now: datetime | None = None,
+    *,
+    apply_grace_floor: bool = True,
+) -> float:
     """Stored weight filtered by half-life decay (Section 4.5).
 
     Grace period: conduits younger than NEW_CONDUIT_GRACE_HOURS decay at a
     reduced rate AND have an elevated floor, protecting new grains from
-    starving before they earn their first useful retrieval."""
+    starving before they earn their first useful retrieval.
+
+    ``apply_grace_floor=False`` returns the raw time-decayed weight. Callers
+    implementing explicit negative feedback (penalize) use this so the grace
+    floor doesn't shield a freshly-created-but-wrong conduit from removal.
+    The slower-decay half-life multiplier still applies -- only the hard
+    floor is skipped."""
     now = now or utcnow()
 
     half_life = cfg.half_life_hours(conduit.decay_class)
@@ -59,7 +71,7 @@ def effective_weight(conduit: Conduit, cfg: Config = DEFAULT_CONFIG, now: dateti
     decay = 0.5 ** (hours_since_use / half_life_eff) if half_life_eff > 0 else 1.0
     weight = conduit.weight * decay
 
-    if in_grace:
+    if in_grace and apply_grace_floor:
         weight = max(weight, cfg.NEW_CONDUIT_MIN_WEIGHT)
 
     return weight
