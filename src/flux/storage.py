@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -23,6 +24,7 @@ from .graph import (
     Trace,
     iso,
     parse_iso,
+    utcnow,
 )
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -317,6 +319,185 @@ class FluxStore:
             "SELECT * FROM traces WHERE id = ?", (trace_id,)
         ).fetchone()
         return _row_to_trace(row) if row else None
+
+    # --------------------------------------------------- decay / orphan helpers
+    def conduits_unused_since(self, stale_cutoff: datetime, limit: int) -> list[Conduit]:
+        """Return conduits whose last_used is before stale_cutoff. Bounded by limit."""
+        rows = self.conn.execute(
+            "SELECT * FROM conduits WHERE last_used < ? ORDER BY last_used ASC LIMIT ?",
+            (iso(stale_cutoff), limit),
+        ).fetchall()
+        return [_row_to_conduit(r) for r in rows]
+
+    def count_inbound_conduits(self, grain_id: str) -> int:
+        """Conduits that point INTO grain_id (to_id = grain_id), per §12.7 orphan query."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM conduits WHERE to_id = ?", (grain_id,)
+        ).fetchone()
+        return int(row["n"])
+
+    def update_grain_status(
+        self,
+        grain_id: str,
+        status: str,
+        dormant_since: datetime | None = None,
+    ) -> None:
+        if dormant_since is not None:
+            self.conn.execute(
+                "UPDATE grains SET status = ?, dormant_since = ? WHERE id = ?",
+                (status, iso(dormant_since), grain_id),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE grains SET status = ? WHERE id = ?",
+                (status, grain_id),
+            )
+
+    # ------------------------------------------------------- entry co-occurrence
+    def increment_entry_cooccurrence(
+        self, entry_a: str, entry_b: str, now: datetime
+    ) -> None:
+        """Canonicalized UPSERT on (min, max) pair."""
+        a, b = sorted([entry_a, entry_b])
+        self.conn.execute(
+            """
+            INSERT INTO entry_cooccurrence (entry_a, entry_b, count, last_updated)
+            VALUES (?, ?, 1, ?)
+            ON CONFLICT(entry_a, entry_b) DO UPDATE SET
+                count = count + 1,
+                last_updated = excluded.last_updated
+            """,
+            (a, b, iso(now)),
+        )
+
+    def all_entry_cooccurrences(self, window_days: int) -> list[dict]:
+        """All co-occurrence pairs updated within window_days."""
+        cutoff = iso(utcnow() - timedelta(days=window_days))
+        rows = self.conn.execute(
+            "SELECT entry_a, entry_b, count FROM entry_cooccurrence WHERE last_updated >= ?",
+            (cutoff,),
+        ).fetchall()
+        return [{"entry_a": r["entry_a"], "entry_b": r["entry_b"], "count": r["count"]} for r in rows]
+
+    # ----------------------------------------------------------- clustering I/O
+    def get_current_partition(self) -> tuple[list[frozenset], list[str]]:
+        """Read the current cluster partition from entry_cluster_membership.
+
+        Returns (partitions, cluster_ids) where partitions[i] is the frozenset of
+        entry_ids in cluster_ids[i]. Used by recompute_clusters for stable ID mapping.
+        """
+        rows = self.conn.execute(
+            "SELECT DISTINCT cluster_id FROM entry_cluster_membership"
+        ).fetchall()
+        cluster_ids = [r["cluster_id"] for r in rows]
+
+        partitions = []
+        for cid in cluster_ids:
+            entry_rows = self.conn.execute(
+                "SELECT entry_id FROM entry_cluster_membership WHERE cluster_id = ?",
+                (cid,),
+            ).fetchall()
+            partitions.append(frozenset(r["entry_id"] for r in entry_rows))
+
+        return partitions, cluster_ids
+
+    def replace_cluster_memberships(
+        self,
+        id_memberships: dict[str, dict[str, float]],
+        new_cluster_ids: list[str],
+        communities: list[frozenset],
+        now: datetime,
+    ) -> None:
+        """Atomically replace all cluster and membership rows (Section 13.2, Step 7)."""
+        with self.transaction():
+            self.conn.execute("DELETE FROM entry_cluster_membership")
+            self.conn.execute("DELETE FROM clusters")
+
+            for idx, cluster_id in enumerate(new_cluster_ids):
+                community = communities[idx]
+                size = sum(
+                    1
+                    for entry_id, weights in id_memberships.items()
+                    if entry_id in community and weights.get(cluster_id, 0.0) > 0.1
+                )
+                self.conn.execute(
+                    "INSERT INTO clusters (id, size, created_at, last_updated) VALUES (?, ?, ?, ?)",
+                    (cluster_id, size, iso(now), iso(now)),
+                )
+
+            for entry_id, cluster_weights in id_memberships.items():
+                for cluster_id, weight in cluster_weights.items():
+                    self.conn.execute(
+                        "INSERT INTO entry_cluster_membership (entry_id, cluster_id, weight) VALUES (?, ?, ?)",
+                        (entry_id, cluster_id, weight),
+                    )
+
+    def all_grain_cluster_touches(self) -> list[tuple[str, str, float]]:
+        """All (grain_id, cluster_id, touch_weight) rows."""
+        rows = self.conn.execute(
+            "SELECT grain_id, cluster_id, touch_weight FROM grain_cluster_touch"
+        ).fetchall()
+        return [(r["grain_id"], r["cluster_id"], r["touch_weight"]) for r in rows]
+
+    def replace_grain_cluster_touches(
+        self, new_touches: dict[tuple[str, str], float]
+    ) -> None:
+        """Atomically replace the entire grain_cluster_touch table (used post-recluster)."""
+        with self.transaction():
+            self.conn.execute("DELETE FROM grain_cluster_touch")
+            for (grain_id, cluster_id), weight in new_touches.items():
+                self.conn.execute(
+                    "INSERT INTO grain_cluster_touch (grain_id, cluster_id, touch_weight) VALUES (?, ?, ?)",
+                    (grain_id, cluster_id, weight),
+                )
+
+    # --------------------------------------------------- promotion helpers
+    def get_entry_cluster_memberships(self, entry_id: str) -> dict[str, float]:
+        rows = self.conn.execute(
+            "SELECT cluster_id, weight FROM entry_cluster_membership WHERE entry_id = ?",
+            (entry_id,),
+        ).fetchall()
+        return {r["cluster_id"]: r["weight"] for r in rows}
+
+    def increment_grain_cluster_touch(
+        self, grain_id: str, cluster_id: str, delta: float, now: datetime
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO grain_cluster_touch (grain_id, cluster_id, touch_weight, last_touched)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(grain_id, cluster_id) DO UPDATE SET
+                touch_weight = touch_weight + excluded.touch_weight,
+                last_touched = excluded.last_touched
+            """,
+            (grain_id, cluster_id, delta, iso(now)),
+        )
+
+    def count_clusters_above_threshold(self, grain_id: str, min_weight: float) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM grain_cluster_touch WHERE grain_id = ? AND touch_weight >= ?",
+            (grain_id, min_weight),
+        ).fetchone()
+        return int(row["n"])
+
+    def update_grain_context_spread(self, grain_id: str, spread: int) -> None:
+        self.conn.execute(
+            "UPDATE grains SET context_spread = ? WHERE id = ?",
+            (spread, grain_id),
+        )
+
+    def promote_grain_to_core(self, grain_id: str) -> None:
+        self.conn.execute(
+            "UPDATE grains SET decay_class = 'core' WHERE id = ?",
+            (grain_id,),
+        )
+
+    def upgrade_inbound_conduits_to_core(self, grain_id: str) -> None:
+        """Reclassify all inbound conduits (to_id = grain_id) to core decay class."""
+        self.conn.execute(
+            "UPDATE conduits SET decay_class = 'core' WHERE to_id = ?",
+            (grain_id,),
+        )
 
 
 # --------------------------------------------------------------------- mappers
