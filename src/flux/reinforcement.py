@@ -151,6 +151,16 @@ def _create_shortcut(
 ) -> None:
     """Create a bidirectional shortcut. Enforce MAX_EDGES_PER_GRAIN by evicting
     the weakest edge on any saturated endpoint first (Section 4.3)."""
+    # Invariant (spec line 1750): never create a shortcut below threshold.
+    # The caller is reinforce(), which guards this with ``count >= threshold``,
+    # but this is the one place shortcuts originate -- verifying locally keeps
+    # the invariant tight against refactors that add new creation call sites.
+    co_count = store.get_co_retrieval_count(grain_a, grain_b)
+    assert co_count >= cfg.SHORTCUT_THRESHOLD, (
+        f"shortcut invariant violated: co_retrieval={co_count} < "
+        f"SHORTCUT_THRESHOLD={cfg.SHORTCUT_THRESHOLD}"
+    )
+
     for grain_id in (grain_a, grain_b):
         if store.count_edges(grain_id) >= cfg.MAX_EDGES_PER_GRAIN:
             _evict_weakest(store, grain_id, cfg, now)

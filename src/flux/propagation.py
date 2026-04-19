@@ -95,8 +95,11 @@ def propagate(
     trace: list[TraceStep] = []
     visited: set[str] = set()
 
-    # Queue item: (grain_id, signal, hop, conduit-that-led-here)
-    frontier: deque[tuple[str, float, int, Conduit]] = deque()
+    # Queue item: (landed_grain, signal, hop, conduit-that-led-here, upstream_id)
+    # upstream_id is the entry/grain the conduit fired out of in this traversal.
+    # For reverse-traversed bidirectional shortcuts upstream_id differs from
+    # conduit.from_id, so we keep it explicit rather than inferring later.
+    frontier: deque[tuple[str, float, int, Conduit, str]] = deque()
 
     # Step 1: Inject signal at every entry's outgoing conduit.
     for entry_id in entry_ids:
@@ -108,11 +111,11 @@ def propagate(
             affinity = entry.affinities.get(conduit.id, 1.0)
             initial = 1.0 * exploration_boost * w * affinity
             if initial >= cfg.ACTIVATION_THRESHOLD:
-                frontier.append((conduit.to_id, initial, 0, conduit))
+                frontier.append((conduit.to_id, initial, 0, conduit, entry_id))
 
     # Step 2: BFS. Attenuate each hop, cap at MAX_HOPS and threshold, dedupe by conduit.
     while frontier:
-        grain_id, signal, hop, conduit = frontier.popleft()
+        grain_id, signal, hop, conduit, upstream_id = frontier.popleft()
 
         if hop >= cfg.MAX_HOPS or signal < cfg.ACTIVATION_THRESHOLD:
             continue
@@ -128,21 +131,31 @@ def propagate(
 
         activated[grain_id] = activated.get(grain_id, 0.0) + signal
         w_at_entry = effective_weight(conduit, cfg, now)
+        # Trace records the TRAVERSAL direction (upstream → landed), not the
+        # conduit's storage orientation. Reinforcement/penalization read
+        # step.to_id as "grain that was activated at this hop" and step.from_id
+        # as "what fed signal into it" -- both must reflect how signal actually
+        # moved through this graph walk, especially when a bidirectional
+        # shortcut was traversed against its stored from/to.
         trace.append(TraceStep(
             conduit_id=conduit.id,
-            from_id=conduit.from_id,
-            to_id=conduit.to_id,
+            from_id=upstream_id,
+            to_id=grain_id,
             signal=signal,
             hop=hop,
             effective_weight=w_at_entry,
         ))
 
-        # Propagate onward. Attenuation applies once per hop transition.
-        for next_conduit in store.outgoing_conduits(grain_id):
+        # Propagate onward. Bidirectional conduits fire from either endpoint
+        # (§13.8), so ask storage for the true downstream neighbour rather
+        # than trusting conduit.to_id, which may point back at ``grain_id``
+        # for a reverse-traversed shortcut. Attenuation applies once per hop
+        # transition either way.
+        for next_grain_id, next_conduit in store.propagation_edges_from(grain_id):
             next_w = effective_weight(next_conduit, cfg, now)
             next_signal = signal * next_w * cfg.ATTENUATION
             if next_signal >= cfg.ACTIVATION_THRESHOLD and next_conduit.id not in visited:
-                frontier.append((next_conduit.to_id, next_signal, hop + 1, next_conduit))
+                frontier.append((next_grain_id, next_signal, hop + 1, next_conduit, grain_id))
 
     # Step 3: Rank and cap at TOP_K.
     ranked = sorted(activated.items(), key=lambda kv: kv[1], reverse=True)[: cfg.TOP_K]

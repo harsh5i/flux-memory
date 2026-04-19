@@ -267,3 +267,74 @@ def test_confidence_concentration_penalises_diffuse_results():
         [TraceStep(conduit_id="c", from_id="e", to_id="g1", signal=0.34, hop=0, effective_weight=0.9)],
     )
     assert peaked > diffuse
+
+
+# --- bidirectional shortcut propagation (Section 13.8) ---------------------
+def test_bidirectional_shortcut_propagates_from_stored_from_side(store):
+    """A shortcut stored as (g1→g2, bidirectional) must propagate signal from
+    g1 to g2 -- the forward direction, equivalent to a normal forward edge."""
+    e = _entry(store, "seed")
+    g1 = _grain(store, "g1")
+    g2 = _grain(store, "g2")
+    _conduit(store, e.id, g1.id, weight=DEFAULT_CONFIG.INITIAL_ENTRY_WEIGHT)
+    _conduit(store, g1.id, g2.id,
+             weight=DEFAULT_CONFIG.INITIAL_WEIGHT_SCALE,
+             direction="bidirectional")
+
+    result = propagate(store, [e.id])
+    ids = [gid for gid, _ in result.activated]
+    assert g1.id in ids and g2.id in ids
+
+
+def test_bidirectional_shortcut_propagates_reverse_direction(store):
+    """Shortcut stored as (g1→g2, bidirectional) must propagate signal g2→g1
+    too -- the shortcut direction property §13.8 specifies."""
+    e = _entry(store, "seed")
+    g1 = _grain(store, "g1")
+    g2 = _grain(store, "g2")
+    # Entry reaches g2 directly; shortcut stored as g1→g2 but bidirectional
+    # so the reverse hop g2→g1 must fire.
+    _conduit(store, e.id, g2.id, weight=DEFAULT_CONFIG.INITIAL_ENTRY_WEIGHT)
+    _conduit(store, g1.id, g2.id,
+             weight=DEFAULT_CONFIG.INITIAL_WEIGHT_SCALE,
+             direction="bidirectional")
+
+    result = propagate(store, [e.id])
+    ids = [gid for gid, _ in result.activated]
+    assert g2.id in ids
+    assert g1.id in ids, "bidirectional shortcut did not propagate in reverse"
+
+
+def test_forward_only_conduit_does_not_propagate_reverse(store):
+    """Plain forward conduits must NOT flow in reverse (entry-point directional
+    gate invariant)."""
+    e = _entry(store, "seed")
+    g1 = _grain(store, "g1")
+    g2 = _grain(store, "g2")
+    _conduit(store, e.id, g2.id, weight=DEFAULT_CONFIG.INITIAL_ENTRY_WEIGHT)
+    _conduit(store, g1.id, g2.id,
+             weight=DEFAULT_CONFIG.INITIAL_WEIGHT_SCALE)  # default direction='forward'
+
+    result = propagate(store, [e.id])
+    ids = [gid for gid, _ in result.activated]
+    assert g2.id in ids
+    assert g1.id not in ids
+
+
+def test_trace_records_traversal_direction_not_storage_order(store):
+    """When a bidirectional shortcut (stored g1→g2) is traversed g2→g1, the
+    trace step must report from_id=g2, to_id=g1. Reinforcement relies on this
+    to know which grain was landed on at each hop."""
+    e = _entry(store, "seed")
+    g1 = _grain(store, "g1")
+    g2 = _grain(store, "g2")
+    _conduit(store, e.id, g2.id, weight=DEFAULT_CONFIG.INITIAL_ENTRY_WEIGHT)
+    _conduit(store, g1.id, g2.id,
+             weight=DEFAULT_CONFIG.INITIAL_WEIGHT_SCALE,
+             direction="bidirectional")
+
+    result = propagate(store, [e.id])
+    # Find the hop-1 step that activated g1.
+    reverse_steps = [t for t in result.trace if t.hop == 1 and t.to_id == g1.id]
+    assert len(reverse_steps) == 1
+    assert reverse_steps[0].from_id == g2.id

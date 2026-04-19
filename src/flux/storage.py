@@ -160,6 +160,29 @@ class FluxStore:
         ).fetchall()
         return [_row_to_conduit(r) for r in rows]
 
+    def propagation_edges_from(self, grain_id: str) -> list[tuple[str, Conduit]]:
+        """Edges reachable from ``grain_id`` during signal propagation.
+
+        Returns (next_grain_id, conduit) pairs. Bidirectional conduits are
+        yielded from either endpoint — a shortcut stored as (g1→g2, bidirectional)
+        surfaces as (g2, conduit) when queried from g1 AND as (g1, conduit)
+        when queried from g2. Forward-only conduits yield only (to_id, conduit)
+        when queried from their from_id, preserving entry-gate directionality
+        per §13.8."""
+        rows = self.conn.execute(
+            """
+            SELECT * FROM conduits
+            WHERE from_id = ? OR (to_id = ? AND direction = 'bidirectional')
+            """,
+            (grain_id, grain_id),
+        ).fetchall()
+        edges: list[tuple[str, Conduit]] = []
+        for r in rows:
+            c = _row_to_conduit(r)
+            next_id = c.to_id if c.from_id == grain_id else c.from_id
+            edges.append((next_id, c))
+        return edges
+
     def inbound_conduits(self, to_id: str) -> list[Conduit]:
         rows = self.conn.execute(
             "SELECT * FROM conduits WHERE to_id = ?", (to_id,)
