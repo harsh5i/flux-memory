@@ -79,6 +79,49 @@ CREATE TABLE IF NOT EXISTS co_retrieval_counts (
     PRIMARY KEY (grain_a, grain_b)
 );
 
+-- Structured event log (Section 11.5).
+-- All operations emit events here. Also written to a rotating JSON log file.
+CREATE TABLE IF NOT EXISTS events (
+    id          TEXT PRIMARY KEY,
+    timestamp   TEXT NOT NULL,
+    category    TEXT NOT NULL,  -- retrieval|feedback|write|decay|cluster|health|system|admin
+    event       TEXT NOT NULL,
+    trace_id    TEXT,           -- optional link to traces.id
+    data        TEXT NOT NULL DEFAULT '{}'  -- JSON blob per §11.5 event structure
+);
+
+-- Health signal snapshots (Section 12). One row per signal per computation run.
+CREATE TABLE IF NOT EXISTS health_log (
+    id          TEXT PRIMARY KEY,
+    timestamp   TEXT NOT NULL,
+    signal      TEXT NOT NULL,
+    value       REAL NOT NULL,
+    healthy     INTEGER NOT NULL DEFAULT 1,  -- 1=healthy, 0=unhealthy
+    window      TEXT NOT NULL DEFAULT 'short'  -- short|medium|long
+);
+
+-- Active warnings table (Section 12.2). Cleared when signal returns to healthy range.
+CREATE TABLE IF NOT EXISTS warnings (
+    id              TEXT PRIMARY KEY,
+    signal          TEXT NOT NULL UNIQUE,
+    severity        TEXT NOT NULL,  -- INFO|WARNING|CRITICAL
+    current_value   REAL NOT NULL,
+    healthy_range   TEXT NOT NULL,
+    first_seen      TEXT NOT NULL,
+    last_seen       TEXT NOT NULL,
+    cleared_at      TEXT,
+    suggestion      TEXT NOT NULL DEFAULT ''
+);
+
+-- Grain embeddings for bootstrap and vector fallback (Section 4.7, 4.8).
+-- Stored as JSON-encoded float array. One row per active grain.
+CREATE TABLE IF NOT EXISTS grain_embeddings (
+    grain_id    TEXT PRIMARY KEY,
+    embedding   TEXT NOT NULL,  -- JSON float array
+    model_name  TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Propagation performance indexes (Section 6.4).
 CREATE INDEX IF NOT EXISTS idx_conduits_from ON conduits(from_id) WHERE weight >= 0.05;
 CREATE INDEX IF NOT EXISTS idx_conduits_to   ON conduits(to_id);
@@ -86,5 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_grains_status ON grains(status);
 CREATE INDEX IF NOT EXISTS idx_traces_created ON traces(created_at);
 
 -- Additional indexes not named in §6.4 but implied by access patterns.
--- last_used drives the cleanup pass candidate query; without this it's a full scan.
 CREATE INDEX IF NOT EXISTS idx_conduits_last_used ON conduits(last_used);
+CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_category ON events(category, timestamp);
+CREATE INDEX IF NOT EXISTS idx_health_log_timestamp ON health_log(timestamp, signal);
