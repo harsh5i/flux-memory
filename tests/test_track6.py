@@ -8,8 +8,9 @@ from pathlib import Path
 from datetime import timezone, datetime
 
 from flux import Config, FluxStore, Grain, Conduit
-from flux.embedding import MockEmbeddingBackend, store_embedding
-from flux.llm import MockLLMBackend
+from mocks import MockEmbeddingBackend
+from flux.embedding import store_embedding
+from mocks import MockLLMBackend
 from flux.expansion import expand_results
 from flux.shift import ContextShiftDetector
 from flux.prewarm import prewarm, _chunk_by_size, _chunk_by_heading, _chunk_conversation_json

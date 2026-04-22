@@ -7,10 +7,8 @@ Embeddings are used in two places only:
      query the stored embeddings for nearest neighbours and return them as
      supplementary results (§4.8).
 
-The embedding model is loaded once and kept in memory. For production, uses
-sentence-transformers (all-MiniLM-L6-v2 by default, 384-dim). Tests use
-MockEmbeddingBackend which returns deterministic random-like vectors without
-loading any model.
+The embedding model is loaded once and kept in memory. Production default:
+sentence-transformers (all-MiniLM-L6-v2, 384-dim). Test backends live in tests/mocks.py.
 """
 from __future__ import annotations
 
@@ -55,23 +53,6 @@ class SentenceTransformerBackend:
     @property
     def model_name(self) -> str:
         return self._model_name
-
-
-# ----------------------------------------------------------------- mock backend
-
-class MockEmbeddingBackend:
-    """Deterministic pseudo-embeddings for tests. Hash-based, 16-dim, L2-normalised."""
-
-    DIM = 16
-    model_name = "mock-embedding"
-
-    def embed(self, text: str) -> list[float]:
-        rng = [((hash(text + str(i)) % 1000) / 1000.0) for i in range(self.DIM)]
-        norm = math.sqrt(sum(x * x for x in rng)) or 1.0
-        return [x / norm for x in rng]
-
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return [self.embed(t) for t in texts]
 
 
 # ---------------------------------------------------------- storage helpers

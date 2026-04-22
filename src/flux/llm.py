@@ -5,8 +5,8 @@ The spec requires a local 7B-8B instruction-tuned LLM for two purposes:
   2. Grain extraction: reads (user_message + ai_response) and emits atomic facts.
 
 The implementation is backend-agnostic: callers use the ``LLMBackend`` protocol.
-``OllamaBackend`` is the default production backend (Ollama REST API). Tests use
-``MockLLMBackend``, which returns deterministic outputs without a running server.
+``OllamaBackend`` is the default production backend (Ollama REST API).
+Test backends live in tests/mocks.py and must not be imported from production code.
 
 Backend selection via Config:
   cfg.LLM_BASE_URL  — e.g. "http://localhost:11434" for Ollama
@@ -110,46 +110,6 @@ class OllamaBackend:
         except Exception as exc:
             logger.error("OllamaBackend.complete failed: %s", exc)
             raise
-
-
-# ------------------------------------------------------------------- mock backend
-
-class MockLLMBackend:
-    """Deterministic mock LLM backend for tests and offline use.
-
-    Keyword extraction: returns the first 3 non-stopword tokens from the query.
-    Grain extraction: returns one grain per sentence in the user message.
-    """
-
-    _STOPWORDS = {"the", "a", "an", "is", "are", "was", "were", "for", "of",
-                  "to", "in", "on", "at", "by", "with", "and", "or", "but",
-                  "how", "what", "when", "where", "why", "who", "which", "help",
-                  "me", "my", "i", "you", "we", "they", "it", "that", "this"}
-
-    def complete(self, prompt: str) -> str:
-        if "Extract 2-5 key concept words" in prompt:
-            return self._mock_features(prompt)
-        if "Extract atomic facts" in prompt:
-            return self._mock_grains(prompt)
-        return "[]"
-
-    def _mock_features(self, prompt: str) -> str:
-        # Take the last Query: line to skip the few-shot examples in the template.
-        matches = re.findall(r'Query: "(.+?)"', prompt)
-        query = matches[-1] if matches else prompt
-        words = re.findall(r"[a-zA-Z]+", query.lower())
-        keywords = [w for w in words if w not in self._STOPWORDS][:3]
-        return json.dumps(keywords or ["query"])
-
-    def _mock_grains(self, prompt: str) -> str:
-        m = re.search(r"User message: (.+?)(?:\nAI response:)", prompt, re.DOTALL)
-        user_text = m.group(1).strip() if m else ""
-        sentences = [s.strip() for s in re.split(r"[.!?]", user_text) if s.strip()]
-        grains = [
-            {"content": s, "provenance": "user_stated"}
-            for s in sentences[:3]
-        ]
-        return json.dumps(grains)
 
 
 # ---------------------------------------------------------- response parsers

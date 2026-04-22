@@ -322,3 +322,66 @@ class TestDecayIntegration:
         expiry_stats = expiry_pass(store, cfg)
         assert expiry_stats["grains_archived"] == 1
         assert store.get_grain(target.id).status == "archived"
+
+
+# ===================================================================== §1B.5 bidirectional orphan fix
+
+class TestBidirectionalOrphanFix:
+    """§1A.9 / §1B.5: A grain reachable only via a bidirectional shortcut must NOT go dormant."""
+
+    def test_grain_reachable_via_bidirectional_shortcut_not_dormant(self, store):
+        cfg = Config(
+            WEIGHT_FLOOR=0.05,
+            CLEANUP_STALE_HOURS=1,
+            CLEANUP_BATCH_SIZE=100,
+            NEW_CONDUIT_GRACE_HOURS=0,
+        )
+        # g1 and g2 are connected by a bidirectional shortcut stored as (from=g1, to=g2).
+        # From g2's perspective: no to_id=g2 conduit exists, but (from_id=g1, to_id=g2,
+        # direction=bidirectional) means g2 IS reachable. The old bug would mark g2 dormant.
+        g1 = Grain(content="hub grain", provenance="user_stated")
+        g2 = Grain(content="target via bidirectional", provenance="user_stated")
+        store.insert_grain(g1)
+        store.insert_grain(g2)
+
+        # Bidirectional shortcut: stored as (from=g1, to=g2, direction=bidirectional).
+        shortcut = Conduit(
+            from_id=g1.id, to_id=g2.id, weight=0.6,
+            direction="bidirectional",
+            last_used=datetime.now(timezone.utc),
+        )
+        store.insert_conduit(shortcut)
+
+        # Run cleanup (nothing should decay — conduit is fresh).
+        cleanup_pass(store, cfg)
+
+        # g2 must remain active because count_inbound_conduits correctly counts
+        # the bidirectional shortcut stored with from_id=g1.
+        g2_after = store.get_grain(g2.id)
+        assert g2_after.status == "active", (
+            "grain reachable via bidirectional shortcut was wrongly marked dormant"
+        )
+
+    def test_grain_with_only_forward_conduit_still_goes_dormant_when_decayed(self, store):
+        """Ensure the fix didn't break the normal dormancy path for truly isolated grains."""
+        cfg = Config(
+            WEIGHT_FLOOR=0.05,
+            CLEANUP_STALE_HOURS=1,
+            CLEANUP_BATCH_SIZE=100,
+            NEW_CONDUIT_GRACE_HOURS=0,
+        )
+        hub = Grain(content="hub", provenance="user_stated")
+        isolated = Grain(content="isolated", provenance="user_stated")
+        store.insert_grain(hub)
+        store.insert_grain(isolated)
+
+        # A decayed forward conduit — isolated has no inbound after deletion.
+        c = Conduit(
+            from_id=hub.id, to_id=isolated.id, weight=0.01,
+            last_used=datetime.now(timezone.utc) - timedelta(hours=5),
+        )
+        store.insert_conduit(c)
+
+        stats = cleanup_pass(store, cfg)
+        assert stats["conduits_deleted"] >= 1
+        assert store.get_grain(isolated.id).status == "dormant"

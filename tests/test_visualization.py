@@ -5,7 +5,8 @@ import json
 import pytest
 
 from flux import FluxStore, Grain, Conduit, Entry
-from flux.embedding import MockEmbeddingBackend, store_embedding
+from mocks import MockEmbeddingBackend
+from flux.embedding import store_embedding
 from flux.visualization import export_graphml, export_json, export_dot, subgraph, cluster_view
 
 

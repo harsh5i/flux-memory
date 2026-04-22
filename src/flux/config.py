@@ -99,13 +99,34 @@ class Config:
     # --- Admin channel ---
     PURGE_UNDO_WINDOW_HOURS: float = 24.0
 
-    # --- LLM backend (Track 2, implementation-specific — not in spec §5) ---
-    LLM_BASE_URL: str = "http://localhost:11434"   # Ollama default
-    LLM_MODEL: str = "llama3.1:8b"
+    # --- LLM backend (§1A.10) ---
+    LLM_BASE_URL: str = "http://localhost:11434"
+    LLM_MODEL: str = "qwen2.5:7b-instruct"
     LLM_TIMEOUT_SECONDS: float = 30.0
 
-    # --- Embedding model (Track 2) ---
+    # --- Embedding model (§1A.10) ---
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
+
+    # --- Operating mode (§1A.3): "caller_extracts" | "flux_extracts" ---
+    OPERATING_MODE: str = "flux_extracts"
+
+    # --- MCP server identity (§1A.2) ---
+    MCP_SERVER_NAME: str = "flux-memory"
+    MCP_PORT: int = 7464
+    REST_PORT: int = 7465
+    ADMIN_REST_PORT: int = 7463
+    DASHBOARD_PORT: int = 7462
+
+    # --- Booth architecture (§1A.7) ---
+    READ_WORKERS: int = 3
+    MAX_GRAINS_PER_CALL: int = 100
+    MAX_WRITE_QUEUE_DEPTH: int = 1000
+    MAX_GRAINS_PER_MINUTE: int = 500
+
+    # --- Admin authentication (§1A.8) ---
+    ADMIN_LOCKOUT_MINUTES: int = 15
+    ADMIN_MAX_ATTEMPTS: int = 3
+    ADMIN_SESSION_HOURS: int = 1
 
     # --- Provenance reinforcement multipliers (Section 7.2) ---
     def provenance_multiplier(self, provenance: str) -> float:

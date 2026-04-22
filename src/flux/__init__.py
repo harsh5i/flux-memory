@@ -24,9 +24,8 @@ from .decay import cleanup_pass, expiry_pass
 from .clustering import record_entry_cooccurrence, recompute_clusters
 from .promotion import check_promotion, check_promotions_bulk
 from .health import flux_health, log_event
-from .llm import MockLLMBackend, OllamaBackend
+from .llm import OllamaBackend
 from .embedding import (
-    MockEmbeddingBackend,
     SentenceTransformerBackend,
     cosine_similarity,
     vector_fallback,
@@ -51,8 +50,6 @@ __all__ = [
     "Grain",
     "GrainDecayClass",
     "GrainStatus",
-    "MockEmbeddingBackend",
-    "MockLLMBackend",
     "OllamaBackend",
     "Provenance",
     "PropagationResult",

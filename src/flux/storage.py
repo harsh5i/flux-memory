@@ -330,9 +330,15 @@ class FluxStore:
         return [_row_to_conduit(r) for r in rows]
 
     def count_inbound_conduits(self, grain_id: str) -> int:
-        """Conduits that point INTO grain_id (to_id = grain_id), per §12.7 orphan query."""
+        """Conduits that reach grain_id: either to_id=grain_id OR a bidirectional
+        shortcut where from_id=grain_id (§1A.9 correctness fix)."""
         row = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM conduits WHERE to_id = ?", (grain_id,)
+            """
+            SELECT COUNT(*) AS n FROM conduits
+            WHERE to_id = ?
+               OR (from_id = ? AND direction = 'bidirectional')
+            """,
+            (grain_id, grain_id),
         ).fetchone()
         return int(row["n"])
 

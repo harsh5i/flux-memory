@@ -22,9 +22,9 @@ from pathlib import Path
 import pytest
 
 from flux import Config, FluxStore
-from flux.embedding import MockEmbeddingBackend
+from mocks import MockEmbeddingBackend
 from flux.health import flux_health, log_event
-from flux.llm import MockLLMBackend
+from mocks import MockLLMBackend
 from flux.prewarm import prewarm
 from flux.retrieval import flux_feedback, flux_retrieve, flux_store
 from flux.shift import ContextShiftDetector

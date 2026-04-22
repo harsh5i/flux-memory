@@ -10,7 +10,6 @@ import pytest
 
 from flux import Config, Entry, Grain, FluxStore
 from flux.embedding import (
-    MockEmbeddingBackend,
     SentenceTransformerBackend,
     cosine_similarity,
     load_all_embeddings,
@@ -24,11 +23,11 @@ from flux.extraction import (
     extract_and_store_grains,
 )
 from flux.llm import (
-    MockLLMBackend,
     OllamaBackend,
     parse_features,
     parse_grains,
 )
+from mocks import MockEmbeddingBackend, MockLLMBackend
 
 import numpy as np
 
