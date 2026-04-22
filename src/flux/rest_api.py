@@ -20,10 +20,8 @@ Usage (programmatic):
 Usage (via flux CLI):
     flux start  # launches this at cfg.REST_PORT
 """
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, List
 
 from .config import Config, DEFAULT_CONFIG
 from .service import FluxService
@@ -33,13 +31,33 @@ logger = logging.getLogger(__name__)
 _CALLER_HEADER = "X-Caller-Id"
 _DEFAULT_CALLER = "anonymous"
 
+try:
+    from fastapi import FastAPI, HTTPException, Request
+    from pydantic import BaseModel
 
-def build_app(service: FluxService, cfg: Config = DEFAULT_CONFIG):
+    class StoreRequest(BaseModel):
+        content: str
+        provenance: str = "ai_stated"
+
+    class StoreBatchRequest(BaseModel):
+        items: List[dict]
+
+    class RetrieveRequest(BaseModel):
+        query: str
+
+    class FeedbackRequest(BaseModel):
+        trace_id: str
+        grain_id: str
+        useful: bool
+
+except ImportError:
+    pass  # build_app will raise with a helpful message if called without fastapi
+
+
+def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     """Construct and return a FastAPI application wired to the given service."""
     try:
-        from fastapi import FastAPI, Header, HTTPException, Request
-        from fastapi.responses import JSONResponse
-        from pydantic import BaseModel
+        from fastapi import FastAPI, HTTPException, Request
     except ImportError as exc:
         raise ImportError(
             "REST API requires 'fastapi' and 'uvicorn'. "
@@ -51,25 +69,6 @@ def build_app(service: FluxService, cfg: Config = DEFAULT_CONFIG):
         description="Self-organizing retrieval fabric for AI memory.",
         version="0.6.0",
     )
-
-    # ------------------------------------------------------------------
-    # Request / response models
-    # ------------------------------------------------------------------
-
-    class StoreRequest(BaseModel):
-        content: str
-        provenance: str = "ai_stated"
-
-    class StoreBatchRequest(BaseModel):
-        items: list[dict]
-
-    class RetrieveRequest(BaseModel):
-        query: str
-
-    class FeedbackRequest(BaseModel):
-        trace_id: str
-        grain_id: str
-        useful: bool
 
     # ------------------------------------------------------------------
     # Helper

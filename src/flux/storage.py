@@ -33,7 +33,7 @@ _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 class FluxStore:
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
-        self.conn = sqlite3.connect(self.db_path, isolation_level=None)
+        self.conn = sqlite3.connect(self.db_path, isolation_level=None, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
@@ -255,7 +255,7 @@ class FluxStore:
     # ------------------------------------------------------------------ entries
     def insert_entry(self, entry: Entry) -> None:
         self.conn.execute(
-            "INSERT INTO entries (id, feature, affinities) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO entries (id, feature, affinities) VALUES (?, ?, ?)",
             (entry.id, entry.feature, json.dumps(entry.affinities)),
         )
 

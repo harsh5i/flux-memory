@@ -155,8 +155,10 @@ def test_insert_and_get_entry(store):
 
 def test_entry_feature_is_unique(store):
     store.insert_entry(Entry(feature="AI"))
-    with pytest.raises(sqlite3.IntegrityError):
-        store.insert_entry(Entry(feature="AI"))
+    # Duplicate inserts are silently ignored (INSERT OR IGNORE) for thread safety.
+    store.insert_entry(Entry(feature="AI"))
+    count = store.conn.execute("SELECT COUNT(*) FROM entries WHERE feature = 'AI'").fetchone()[0]
+    assert count == 1
 
 
 def test_get_entry_by_feature(store):
