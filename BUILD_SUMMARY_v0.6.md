@@ -44,7 +44,7 @@ package production-ready.
 | `src/flux/config.py` | Added operating mode, service ports/hosts, booth tuning params, and admin auth params |
 | `src/flux/storage.py` | `check_same_thread=False` for multi-threaded access and `INSERT OR IGNORE` for concurrent entry creation |
 | `src/flux/llm.py` / `src/flux/embedding.py` | Moved test mocks out of production modules |
-| `pyproject.toml` | Version 0.6.0 package metadata and console script |
+| `pyproject.toml` | Version 0.6.1 package metadata and console script |
 
 ## Validation
 
@@ -84,7 +84,7 @@ not as a replacement for CI or a clean-machine pytest run.
 ## Installation
 
 ```bash
-pip install flux-memory==0.6.0
+pip install flux-memory==0.6.1
 python -m flux init --name my-memory
 python -m flux start --name my-memory
 python -m flux mcp-config --name my-memory

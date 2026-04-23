@@ -68,7 +68,7 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     app = FastAPI(
         title="Flux Memory",
         description="Self-organizing retrieval fabric for AI memory.",
-        version="0.6.0",
+        version="0.6.1",
     )
 
     # ------------------------------------------------------------------
@@ -86,7 +86,7 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     def root():
         return {
             "name": "Flux Memory",
-            "version": "0.6.0",
+            "version": "0.6.1",
             "health": "/health",
             "docs": "/docs",
             "endpoints": {

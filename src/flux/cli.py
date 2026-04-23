@@ -43,7 +43,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-_VERSION = "0.6.0"
+_VERSION = "0.6.1"
 _DEFAULT_NAME = "flux-memory"
 _FLUX_HOME = Path.home() / ".flux"
 
@@ -302,7 +302,7 @@ try:
             sys.exit(1)
 
         pid_path = _pid_file(name)
-        if pid_path.exists():
+        if not foreground and pid_path.exists():
             pid = int(pid_path.read_text().strip())
             try:
                 os.kill(pid, 0)
