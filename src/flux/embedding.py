@@ -157,14 +157,14 @@ def vector_fallback(
 
     Returns merged list of (grain_id, score) sorted descending.
     """
+    grain_ids, matrix = load_all_embeddings(store)
+    if not grain_ids:
+        return existing_results
+
     try:
         query_embedding = backend.embed(query_text)
     except Exception as exc:
         logger.error("vector_fallback: embedding failed: %s", exc)
-        return existing_results
-
-    grain_ids, matrix = load_all_embeddings(store)
-    if not grain_ids:
         return existing_results
 
     candidates = top_k_nearest(query_embedding, grain_ids, matrix, k=cfg.VECTOR_FALLBACK_K)

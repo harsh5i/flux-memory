@@ -50,6 +50,32 @@ class TestStartHelp:
         assert "Launch REST API and dashboard" in result.output
 
 
+class TestWarmupCommand:
+    def test_warmup_command_loads_configured_embedding_model(self, tmp_path, monkeypatch):
+        _make_instance(tmp_path, monkeypatch)
+        calls = []
+
+        def fake_warmup(cfg):
+            calls.append(cfg.EMBEDDING_MODEL_NAME)
+            return cfg.EMBEDDING_MODEL_NAME, 384, 0.01
+
+        monkeypatch.setattr(flux_cli, "_warmup_embedding_model", fake_warmup)
+
+        result = CliRunner().invoke(flux_cli.cli, ["warmup", "--name", "test1"])
+
+        assert result.exit_code == 0
+        assert calls == ["all-MiniLM-L6-v2"]
+        assert "Embedding model warmed: all-MiniLM-L6-v2 (384 dims, 0.01s)" in result.output
+
+    def test_warmup_command_requires_initialized_instance(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(flux_cli, "_FLUX_HOME", tmp_path)
+
+        result = CliRunner().invoke(flux_cli.cli, ["warmup", "--name", "missing"])
+
+        assert result.exit_code == 1
+        assert "Instance 'missing' not initialized" in result.output
+
+
 class TestMCPMessaging:
     def test_mcp_client_config_hint_points_to_codex_snippet(self, monkeypatch):
         monkeypatch.setattr(flux_cli, "_FLUX_HOME", Path("flux-home"))

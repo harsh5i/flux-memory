@@ -157,11 +157,28 @@ class FluxService:
 
     def retrieve(self, query: str, caller_id: str = "default") -> RetrievalResult:
         """Submit a retrieve to the read booth (blocking, returns result)."""
-        future = self._executor.submit(
-            flux_retrieve, query,
-            store=self._store, llm=self._llm, emb=self._emb, cfg=self._cfg,
-        )
+        future = self._executor.submit(self._retrieve_worker, query)
         return future.result()
+
+    def _retrieve_worker(self, query: str) -> RetrievalResult:
+        """Run one retrieve using a worker-local SQLite connection."""
+        if self._store.db_path == ":memory:":
+            return flux_retrieve(
+                query,
+                store=self._store,
+                llm=self._llm,
+                emb=self._emb,
+                cfg=self._cfg,
+            )
+
+        with FluxStore(self._store.db_path) as read_store:
+            return flux_retrieve(
+                query,
+                store=read_store,
+                llm=self._llm,
+                emb=self._emb,
+                cfg=self._cfg,
+            )
 
     def store(self, content: str, provenance: str = "ai_stated",
               caller_id: str = "default") -> str:

@@ -20,6 +20,9 @@ Subcommands:
   flux status [--name NAME]
               Show running service status and basic health.
 
+  flux warmup [--name NAME]
+              Load the local embedding model once to populate its cache.
+
   flux admin  [--name NAME]
               Interactive admin menu (password + TOTP gated).
 
@@ -142,6 +145,17 @@ def _write_mcp_client_configs(name: str) -> dict[str, Path]:
 
 def _mcp_client_config_hint(name: str) -> str:
     return str(_integrations_dir(name) / "codex.toml")
+
+
+def _warmup_embedding_model(cfg) -> tuple[str, int, float]:
+    """Load the configured embedding model and run one tiny embed."""
+    from flux.embedding import SentenceTransformerBackend
+
+    start = time.perf_counter()
+    emb = SentenceTransformerBackend(cfg.EMBEDDING_MODEL_NAME)
+    vector = emb.embed("flux warmup")
+    elapsed = time.perf_counter() - start
+    return cfg.EMBEDDING_MODEL_NAME, len(vector), elapsed
 
 
 def _configured_pids_from_ports(ports: list[int]) -> set[int]:
@@ -455,6 +469,27 @@ try:
                     click.echo("  Health:    (could not parse REST health)")
         else:
             click.echo(f"Instance '{name}': STOPPED")
+
+    # ---------------------------------------------------------------- warmup
+
+    @cli.command("warmup")
+    @click.option("--name", default=_DEFAULT_NAME, show_default=True)
+    def warmup(name: str) -> None:
+        """Load the configured embedding model once to populate its cache."""
+        cfg_path = _config_file(name)
+        if not cfg_path.exists():
+            click.echo(f"Instance '{name}' not initialized. Run: flux init --name {name}")
+            sys.exit(1)
+
+        from flux.config import Config
+
+        cfg = Config.from_yaml(cfg_path)
+        click.echo(f"Warming embedding model for instance '{name}'...")
+        model_name, dimensions, elapsed = _warmup_embedding_model(cfg)
+        click.secho(
+            f"Embedding model warmed: {model_name} ({dimensions} dims, {elapsed:.2f}s)",
+            fg="green",
+        )
 
     # ---------------------------------------------------------------- mcp
 
