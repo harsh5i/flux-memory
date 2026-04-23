@@ -29,6 +29,7 @@ from .extraction import decompose_query, extract_and_store_grains, store_atomic_
 from .graph import Grain, Trace, new_id, utcnow
 from .health import log_event
 from .llm import LLMBackend
+from .promotion import check_promotion
 from .propagation import PropagationResult, TraceStep, propagate, retrieval_confidence
 from .reinforcement import penalize, reinforce
 from .storage import FluxStore
@@ -280,10 +281,11 @@ def flux_feedback(
     effective_signal = base_signal * trend_modulator * provenance_modulator
 
     if effective_signal > 0:
-        reinforce(store, trace_steps, [grain_id], cfg=cfg, now=now)
+        reinforce(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id)
+        check_promotion(store, grain_id, trace_steps, cfg=cfg, now=now, trace_id=trace_id)
         action = "reinforced"
     else:
-        penalize(store, trace_steps, [grain_id], cfg=cfg, now=now)
+        penalize(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id)
         action = "penalized"
 
     # Record usefulness event so future ratio queries can use it.

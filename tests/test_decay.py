@@ -1,6 +1,7 @@
 """Tests for decay.py — cleanup_pass and expiry_pass (Track 1 Steps 5-6)."""
 from __future__ import annotations
 
+import json
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -198,6 +199,20 @@ class TestCleanupPass:
         assert "conduits_deleted" in stats
         assert "grains_marked_dormant" in stats
 
+    def test_cleanup_pass_logs_health_facing_event(self, store):
+        cfg = Config(CLEANUP_STALE_HOURS=1, CLEANUP_BATCH_SIZE=100)
+
+        stats = cleanup_pass(store, cfg)
+
+        row = store.conn.execute(
+            """
+            SELECT data FROM events
+            WHERE category='decay' AND event='cleanup_pass_completed'
+            """
+        ).fetchone()
+        assert row is not None
+        assert json.loads(row["data"]) == stats
+
     def test_weight_invariant_after_cleanup(self, store):
         """Any conduit surviving cleanup_pass has effective_weight >= WEIGHT_FLOOR."""
         from flux.propagation import effective_weight
@@ -290,6 +305,18 @@ class TestExpiryPass:
     def test_returns_correct_stats_structure(self, store):
         stats = expiry_pass(store)
         assert "grains_archived" in stats
+
+    def test_expiry_pass_logs_event(self, store):
+        stats = expiry_pass(store)
+
+        row = store.conn.execute(
+            """
+            SELECT data FROM events
+            WHERE category='decay' AND event='expiry_pass_completed'
+            """
+        ).fetchone()
+        assert row is not None
+        assert json.loads(row["data"]) == stats
 
 
 # ===================================================================== integration

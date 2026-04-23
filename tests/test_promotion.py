@@ -1,6 +1,7 @@
 """Tests for promotion.py — grain promotion (Track 1 Step 8)."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -207,6 +208,30 @@ class TestCheckPromotion:
         assert promoted
         updated_conduit = store.get_conduit(c.id)
         assert updated_conduit.decay_class == "core"
+
+    def test_promotion_logs_health_facing_event(self, store):
+        cfg = Config(PROMOTION_THRESHOLD=1, CLUSTER_TOUCH_THRESHOLD=0.1)
+        g = _grain(); e = _entry("logging")
+        store.insert_grain(g); store.insert_entry(e)
+        store.conn.execute(
+            "INSERT INTO entry_cluster_membership (entry_id, cluster_id, weight) VALUES (?, ?, ?)",
+            (e.id, "cluster-logging", 1.0),
+        )
+
+        promoted = check_promotion(store, g.id, _make_trace(e.id, g.id), cfg, trace_id="trace-promo")
+
+        assert promoted
+        row = store.conn.execute(
+            """
+            SELECT trace_id, data FROM events
+            WHERE category='feedback' AND event='promotion_triggered'
+            """
+        ).fetchone()
+        assert row is not None
+        assert row["trace_id"] == "trace-promo"
+        data = json.loads(row["data"])
+        assert data["grain_id"] == g.id
+        assert data["context_spread"] == 1
 
     def test_context_spread_monotonically_nondecreasing(self, store):
         """context_spread must never decrease between successive check_promotion calls."""

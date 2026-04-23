@@ -1,6 +1,7 @@
 """Reinforcement and penalization tests (Section 4.3, 4.4, 7.2)."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -53,6 +54,26 @@ def test_reinforce_widens_conduit_to_successful_grain(store):
     # Spec 4.3: weight += LEARNING_RATE * (1 - weight) = 0.5 + 0.05 * 0.5 = 0.525
     assert after.weight == pytest.approx(0.525, rel=1e-3)
     assert after.use_count == c.use_count + 1
+
+
+def test_reinforce_logs_highway_when_threshold_crossed(store):
+    e = _entry(store, "x")
+    g = _grain(store, "g")
+    c = _conduit(store, e.id, g.id, weight=0.79)
+
+    reinforce(store, [_trace_step(c)], [g.id], trace_id="trace-highway")
+
+    row = store.conn.execute(
+        """
+        SELECT trace_id, data FROM events
+        WHERE category='feedback' AND event='highway_formed'
+        """
+    ).fetchone()
+    assert row is not None
+    assert row["trace_id"] == "trace-highway"
+    data = json.loads(row["data"])
+    assert data["conduit_id"] == c.id
+    assert data["previous_weight"] < 0.80 <= data["new_weight"]
 
 
 def test_reinforce_caps_at_ceiling(store):
@@ -147,6 +168,17 @@ def test_reinforce_creates_shortcut_once_threshold_met(store):
     assert shortcut.weight == pytest.approx(cfg.INITIAL_SHORTCUT_WEIGHT)
     assert shortcut.direction == "bidirectional"
 
+    row = store.conn.execute(
+        """
+        SELECT data FROM events
+        WHERE category='feedback' AND event='shortcut_created'
+        """
+    ).fetchone()
+    assert row is not None
+    data = json.loads(row["data"])
+    assert data["conduit_id"] == shortcut.id
+    assert data["co_retrieval_count"] == cfg.SHORTCUT_THRESHOLD
+
 
 def test_reinforce_reinforces_existing_shortcut(store):
     """Co-retrieving a pair that already has a shortcut widens the shortcut."""
@@ -225,6 +257,18 @@ def test_penalize_narrows_conduit_to_failed_grain(store):
     after = store.get_conduit(c.id)
     # Spec 4.4: weight *= DECAY_FACTOR (0.85) = 0.425
     assert after.weight == pytest.approx(0.5 * DEFAULT_CONFIG.DECAY_FACTOR, rel=1e-3)
+
+    row = store.conn.execute(
+        """
+        SELECT data FROM events
+        WHERE category='feedback' AND event='conduit_penalized'
+        """
+    ).fetchone()
+    assert row is not None
+    data = json.loads(row["data"])
+    assert data["conduit_id"] == c.id
+    assert data["weight_drop"] == pytest.approx(0.5 * (1 - DEFAULT_CONFIG.DECAY_FACTOR))
+    assert data["deleted"] is False
 
 
 def test_penalize_deletes_conduit_below_floor(store):
