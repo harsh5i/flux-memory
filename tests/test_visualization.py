@@ -64,6 +64,17 @@ class TestExportJson:
         assert data["nodes"] == []
         assert data["links"] == []
 
+    def test_stats_include_graph_artifact_counts(self, populated_store):
+        store, g1, *_ = populated_store
+        store_embedding(store, g1.id, MockEmbeddingBackend().embed(g1.content), "mock")
+
+        data = export_json(store)
+
+        assert data["stats"]["grains"] == 2
+        assert data["stats"]["entries"] == 1
+        assert data["stats"]["conduits"] == 1
+        assert data["stats"]["embeddings"] == 1
+
 
 class TestExportGraphml:
     def test_returns_string(self, populated_store):

@@ -23,6 +23,9 @@ Subcommands:
   flux warmup [--name NAME]
               Load the local embedding model once to populate its cache.
 
+  flux rebuild-graph [--name NAME]
+              Backfill embeddings and conduits for existing bare grains.
+
   flux admin  [--name NAME]
               Interactive admin menu (password + TOTP gated).
 
@@ -38,6 +41,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import textwrap
@@ -156,6 +160,25 @@ def _warmup_embedding_model(cfg) -> tuple[str, int, float]:
     vector = emb.embed("flux warmup")
     elapsed = time.perf_counter() - start
     return cfg.EMBEDDING_MODEL_NAME, len(vector), elapsed
+
+
+def _rebuild_instance_graph(name: str, limit: int | None = None) -> dict:
+    from flux.config import Config
+    from flux.embedding import SentenceTransformerBackend
+    from flux.extraction import rebuild_missing_graph
+    from flux.llm import OllamaBackend
+    from flux.storage import FluxStore
+
+    cfg_path = _config_file(name)
+    cfg = Config.from_yaml(cfg_path) if cfg_path.exists() else Config()
+    with FluxStore(_db_file(name)) as store:
+        return rebuild_missing_graph(
+            store,
+            OllamaBackend(cfg),
+            SentenceTransformerBackend(cfg.EMBEDDING_MODEL_NAME),
+            cfg,
+            limit=limit,
+        )
 
 
 def _configured_pids_from_ports(ports: list[int]) -> set[int]:
@@ -488,6 +511,37 @@ try:
         model_name, dimensions, elapsed = _warmup_embedding_model(cfg)
         click.secho(
             f"Embedding model warmed: {model_name} ({dimensions} dims, {elapsed:.2f}s)",
+            fg="green",
+        )
+
+    @cli.command("rebuild-graph")
+    @click.option("--name", default=_DEFAULT_NAME, show_default=True)
+    @click.option("--limit", type=int, default=None,
+                  help="Maximum number of grains to rebuild.")
+    def rebuild_graph(name: str, limit: int | None) -> None:
+        """Backfill embeddings and conduits for existing bare grains."""
+        cfg_path = _config_file(name)
+        if not cfg_path.exists():
+            click.echo(f"Instance '{name}' not initialized. Run: flux init --name {name}")
+            sys.exit(1)
+
+        click.echo(f"Rebuilding graph artifacts for instance '{name}'...")
+        try:
+            stats = _rebuild_instance_graph(name, limit)
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower():
+                click.secho(
+                    "Database is locked. Stop the running Flux service, then rerun "
+                    f"`flux rebuild-graph --name {name}`.",
+                    fg="red",
+                )
+                sys.exit(1)
+            raise
+        click.secho(
+            "Graph rebuild complete: "
+            f"{stats['grains_rebuilt']} rebuilt, "
+            f"{stats['embeddings_created']} embeddings, "
+            f"{stats['conduits_created']} conduits",
             fg="green",
         )
 

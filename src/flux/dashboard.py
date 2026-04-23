@@ -29,148 +29,473 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flux Memory Dashboard</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; }
-  header { background: #1e2330; padding: 16px 24px; border-bottom: 1px solid #2d3748; }
-  header h1 { font-size: 1.25rem; font-weight: 600; }
-  header span { font-size: 0.8rem; color: #718096; margin-left: 12px; }
-  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 20px; }
-  .card { background: #1e2330; border: 1px solid #2d3748; border-radius: 8px; padding: 16px; }
-  .card h2 { font-size: 0.9rem; font-weight: 600; text-transform: uppercase;
-              letter-spacing: 0.05em; color: #718096; margin-bottom: 12px; }
-  .status-badge { display: inline-block; padding: 4px 12px; border-radius: 999px;
-                  font-size: 0.85rem; font-weight: 600; }
-  .healthy { background: #22543d; color: #9ae6b4; }
-  .warning { background: #744210; color: #fbd38d; }
-  .critical { background: #742a2a; color: #feb2b2; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; color: #718096; padding: 4px 8px; border-bottom: 1px solid #2d3748; }
-  td { padding: 6px 8px; border-bottom: 1px solid #1a202c; }
-  .ok { color: #68d391; }
-  .bad { color: #fc8181; }
-  #graph-canvas { width: 100%; height: 300px; background: #0f1117;
-                  border-radius: 4px; overflow: hidden; position: relative; }
-  #graph-canvas svg { width: 100%; height: 100%; }
-  .warn-item { padding: 8px; background: #2d3748; border-radius: 4px;
-               margin-bottom: 6px; font-size: 0.82rem; }
-  .warn-item .sig { font-weight: 600; color: #fbd38d; }
-  .refresh { font-size: 0.75rem; color: #4a5568; margin-top: 8px; }
-  .stat { display: flex; justify-content: space-between; padding: 4px 0;
-          font-size: 0.85rem; border-bottom: 1px solid #1a202c; }
+  :root {
+    --bg: #0b0d12;
+    --surface: #151a22;
+    --surface-2: #1b2230;
+    --line: #2a3445;
+    --muted: #8a94a7;
+    --text: #edf2f7;
+    --teal: #2dd4bf;
+    --green: #74d99f;
+    --amber: #f2b84b;
+    --rose: #fb7185;
+    --violet: #a78bfa;
+    --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 24px;
+    background: #11161f;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: #1f2a38;
+    color: var(--amber);
+    font-weight: 800;
+  }
+  h1 { margin: 0; font-size: 1.05rem; font-weight: 700; letter-spacing: 0; }
+  .updated { color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
+  .header-actions { display: flex; align-items: center; gap: 10px; }
+  button {
+    border: 1px solid var(--line);
+    background: #19212c;
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover { border-color: #3b4a60; background: #202a38; }
+  main { padding: 18px; display: grid; gap: 16px; }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .metric, .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .metric { padding: 14px; min-height: 96px; }
+  .metric .label {
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .metric .value { font-size: 1.7rem; line-height: 1.2; font-weight: 750; margin-top: 8px; }
+  .metric .sub { color: var(--muted); font-size: 0.78rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .value.good { color: var(--green); }
+  .value.warn { color: var(--amber); }
+  .value.bad { color: var(--rose); }
+  .value.info { color: var(--teal); }
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
+    gap: 16px;
+  }
+  .panel { overflow: hidden; }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    background: #171d27;
+  }
+  .panel h2 {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 750;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #b4bed0;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    font-size: 0.77rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .badge.healthy { background: rgba(116, 217, 159, 0.14); color: var(--green); }
+  .badge.warning { background: rgba(242, 184, 75, 0.16); color: var(--amber); }
+  .badge.critical { background: rgba(251, 113, 133, 0.16); color: var(--rose); }
+  .panel-body { padding: 14px 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  th {
+    text-align: left;
+    color: var(--muted);
+    padding: 0 8px 8px;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  td { padding: 9px 8px; border-bottom: 1px solid rgba(42, 52, 69, 0.52); }
+  tr:last-child td { border-bottom: 0; }
+  .signal-name { color: #dce6f6; }
+  .signal-value { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+  .state-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: var(--rose);
+  }
+  .state-dot.ok { background: var(--green); }
+  .warnings { display: grid; gap: 10px; }
+  .warn-item {
+    border: 1px solid rgba(242, 184, 75, 0.22);
+    background: rgba(242, 184, 75, 0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .warn-title { color: var(--amber); font-size: 0.82rem; font-weight: 800; margin-bottom: 4px; }
+  .warn-text { color: #d7dee9; font-size: 0.84rem; line-height: 1.4; }
+  .muted { color: var(--muted); }
+  .graph-panel { min-height: 500px; }
+  .graph-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+  .pill {
+    border: 1px solid var(--line);
+    background: #121821;
+    color: #b8c2d4;
+    border-radius: 999px;
+    padding: 5px 8px;
+  }
+  #graph-canvas {
+    position: relative;
+    height: 430px;
+    background: #080b10;
+    border-top: 1px solid #101722;
+  }
+  #graph-svg { width: 100%; height: 100%; display: block; }
+  .empty-note {
+    position: absolute;
+    left: 18px;
+    bottom: 16px;
+    max-width: min(520px, calc(100% - 36px));
+    color: #aab5c7;
+    font-size: 0.86rem;
+    background: rgba(21, 26, 34, 0.88);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .legend {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+  .span-2 { grid-column: 1 / -1; }
+  @media (max-width: 1100px) {
+    .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 680px) {
+    header { align-items: flex-start; flex-direction: column; padding: 16px; }
+    main { padding: 12px; }
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .metric .value { font-size: 1.35rem; }
+    #graph-canvas { height: 340px; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>⚡ Flux Memory</h1>
-  <span id="computed-at">Loading…</span>
+  <div class="brand">
+    <div class="brand-mark">F</div>
+    <div>
+      <h1>Flux Memory</h1>
+      <div class="updated" id="computed-at">Loading</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div id="status-badge" class="badge warning">Loading</div>
+    <button id="refresh-button" type="button" title="Refresh dashboard">Refresh</button>
+  </div>
 </header>
 <main>
+  <section class="metrics" id="metrics"></section>
 
-<div class="card">
-  <h2>Health Status</h2>
-  <div id="status-badge" class="status-badge" style="margin-bottom:12px">…</div>
-  <table>
-    <thead><tr><th>Signal</th><th>Value</th><th>OK?</th></tr></thead>
-    <tbody id="signals-table"></tbody>
-  </table>
-</div>
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Health Signals</h2>
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead><tr><th>Signal</th><th>Value</th><th>State</th></tr></thead>
+          <tbody id="signals-table"></tbody>
+        </table>
+      </div>
+    </div>
 
-<div class="card">
-  <h2>Active Warnings</h2>
-  <div id="warnings-list"><em style="color:#4a5568">None</em></div>
-</div>
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Warnings</h2>
+        <span class="pill" id="warning-count">0 active</span>
+      </div>
+      <div class="panel-body">
+        <div id="warnings-list" class="warnings"><span class="muted">None</span></div>
+      </div>
+    </div>
+  </section>
 
-<div class="card" style="grid-column:1/-1">
-  <h2>Graph Overview</h2>
-  <div id="graph-canvas"><svg id="graph-svg"></svg></div>
-  <p class="refresh" id="graph-stats"></p>
-</div>
-
+  <section class="panel graph-panel span-2">
+    <div class="panel-header">
+      <div>
+        <h2>Graph Overview</h2>
+        <div class="graph-meta" id="graph-stats"></div>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--teal)"></i>Entry</span>
+        <span><i class="swatch" style="background:var(--blue)"></i>Grain</span>
+        <span><i class="swatch" style="background:var(--amber)"></i>Core</span>
+        <span><i class="swatch" style="background:var(--green)"></i>Strong conduit</span>
+      </div>
+    </div>
+    <div id="graph-canvas">
+      <svg id="graph-svg"></svg>
+      <div id="empty-note" class="empty-note" hidden></div>
+    </div>
+  </section>
 </main>
-<p class="refresh" style="padding:0 20px 16px">Auto-refreshes every 30s.</p>
 <script>
+const fmt = new Intl.NumberFormat();
+
+function safeNumber(value, digits = 3) {
+  const n = Number(value || 0);
+  return Number.isInteger(n) ? fmt.format(n) : n.toFixed(digits);
+}
+
+function metricCard(label, value, sub, tone) {
+  const el = document.createElement('div');
+  el.className = 'metric';
+  el.innerHTML = `<div class="label"></div><div class="value ${tone || ''}"></div><div class="sub"></div>`;
+  el.children[0].textContent = label;
+  el.children[1].textContent = value;
+  el.children[2].textContent = sub || '';
+  return el;
+}
+
 async function fetchJSON(url) {
-  const r = await fetch(url);
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`${url} returned ${r.status}`);
   return r.json();
+}
+
+function renderMetrics(health, graph) {
+  const stats = graph.stats || {};
+  const sig = health.signals || {};
+  const metrics = document.getElementById('metrics');
+  metrics.innerHTML = '';
+  metrics.appendChild(metricCard('Grains', safeNumber(stats.grains), `${safeNumber(stats.active_grains)} active`, 'info'));
+  metrics.appendChild(metricCard('Entries', safeNumber(stats.entries), 'feature anchors', ''));
+  metrics.appendChild(metricCard('Conduits', safeNumber(stats.conduits), `${safeNumber(sig.avg_conduit_weight?.value)} avg weight`, stats.conduits > 0 ? 'good' : 'warn'));
+  metrics.appendChild(metricCard('Embeddings', safeNumber(stats.embeddings), 'vector fallback index', stats.embeddings > 0 ? 'good' : 'warn'));
+  metrics.appendChild(metricCard('Retrieval', `${safeNumber((sig.retrieval_success_rate?.value || 0) * 100, 1)}%`, 'success rate', ''));
+  metrics.appendChild(metricCard('Fallback', `${safeNumber((sig.fallback_trigger_rate?.value || 0) * 100, 1)}%`, 'trigger rate', (sig.fallback_trigger_rate?.value || 0) > 0.2 ? 'bad' : 'good'));
 }
 
 function renderHealth(data) {
   document.getElementById('computed-at').textContent =
-    'Last computed: ' + (data.computed_at || '?');
+    `Last computed ${data.computed_at || 'unknown'}`;
 
   const badge = document.getElementById('status-badge');
-  badge.textContent = (data.status || 'unknown').toUpperCase();
-  badge.className = 'status-badge ' + (data.status || 'unknown');
+  const status = data.status || 'unknown';
+  badge.textContent = status;
+  badge.className = `badge ${status}`;
 
   const tbody = document.getElementById('signals-table');
   tbody.innerHTML = '';
   for (const [name, sig] of Object.entries(data.signals || {})) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${name}</td><td>${(+sig.value).toFixed(3)}</td>
-      <td class="${sig.healthy ? 'ok' : 'bad'}">${sig.healthy ? '✓' : '✗'}</td>`;
+    const nameCell = document.createElement('td');
+    const valueCell = document.createElement('td');
+    const stateCell = document.createElement('td');
+    nameCell.className = 'signal-name';
+    valueCell.className = 'signal-value';
+    nameCell.textContent = name;
+    valueCell.textContent = safeNumber(sig.value);
+    const dot = document.createElement('span');
+    dot.className = `state-dot ${sig.healthy ? 'ok' : ''}`;
+    dot.title = sig.healthy ? 'healthy' : 'warning';
+    stateCell.appendChild(dot);
+    tr.append(nameCell, valueCell, stateCell);
     tbody.appendChild(tr);
   }
 
   const wlist = document.getElementById('warnings-list');
+  const count = document.getElementById('warning-count');
   const warns = data.active_warnings || [];
+  count.textContent = `${warns.length} active`;
+  wlist.innerHTML = '';
   if (warns.length === 0) {
-    wlist.innerHTML = '<em style="color:#4a5568">None</em>';
-  } else {
-    wlist.innerHTML = warns.map(w =>
-      `<div class="warn-item"><span class="sig">${w.signal}</span>: ${w.suggestion}</div>`
-    ).join('');
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.textContent = 'None';
+    wlist.appendChild(empty);
+    return;
   }
+  warns.forEach(w => {
+    const item = document.createElement('div');
+    item.className = 'warn-item';
+    const title = document.createElement('div');
+    title.className = 'warn-title';
+    title.textContent = w.signal || 'warning';
+    const text = document.createElement('div');
+    text.className = 'warn-text';
+    text.textContent = w.suggestion || '';
+    item.append(title, text);
+    wlist.appendChild(item);
+  });
 }
 
 function renderGraph(data) {
   const nodes = data.nodes || [];
   const links = data.links || [];
-  const stats = document.getElementById('graph-stats');
-  stats.textContent = `${nodes.length} nodes · ${links.length} edges`;
+  const stats = data.stats || {};
+  const graphStats = document.getElementById('graph-stats');
+  graphStats.innerHTML = '';
+  [
+    `${safeNumber(stats.grains || 0)} grains`,
+    `${safeNumber(stats.entries || 0)} entries`,
+    `${safeNumber(stats.conduits || 0)} conduits`,
+    `${safeNumber(stats.embeddings || 0)} embeddings`
+  ].forEach(text => {
+    const pill = document.createElement('span');
+    pill.className = 'pill';
+    pill.textContent = text;
+    graphStats.appendChild(pill);
+  });
 
   const svg = document.getElementById('graph-svg');
-  const W = svg.clientWidth || 800, H = svg.clientHeight || 300;
+  const note = document.getElementById('empty-note');
+  const W = Math.max(svg.clientWidth || 960, 480);
+  const H = Math.max(svg.clientHeight || 430, 300);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = '';
+  note.hidden = true;
 
   if (nodes.length === 0) {
-    svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#4a5568">No data</text>';
+    note.hidden = false;
+    note.textContent = 'No graph data is stored yet.';
     return;
   }
 
-  // Minimal force-free layout: place nodes in a circle.
-  const pos = {};
-  nodes.forEach((n, i) => {
-    const angle = (2 * Math.PI * i) / nodes.length;
-    pos[n.id] = { x: W/2 + (W*0.38)*Math.cos(angle), y: H/2 + (H*0.38)*Math.sin(angle) };
+  const degree = {};
+  links.forEach(l => {
+    degree[l.source] = (degree[l.source] || 0) + 1;
+    degree[l.target] = (degree[l.target] || 0) + 1;
   });
 
-  // Edges first.
+  const entries = nodes.filter(n => n.node_type === 'entry');
+  const grains = nodes.filter(n => n.node_type !== 'entry');
+  const pos = {};
+
+  if (links.length === 0) {
+    note.hidden = false;
+    note.textContent = 'No conduits are stored, so grains are currently isolated.';
+    layoutBand(entries, W * 0.22, W * 0.14, H, pos);
+    layoutBand(grains, W * 0.67, W * 0.26, H, pos);
+  } else {
+    layoutLinked(nodes, links, degree, W, H, pos);
+  }
+
   links.forEach(l => {
     const s = pos[l.source], t = pos[l.target];
     if (!s || !t) return;
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    const w = Math.max(0.5, (l.effective_weight || 0.3) * 4);
-    const hue = l.effective_weight > 0.5 ? '#68d391' : l.effective_weight > 0.25 ? '#fbd38d' : '#fc8181';
-    line.setAttribute('x1', s.x); line.setAttribute('y1', s.y);
-    line.setAttribute('x2', t.x); line.setAttribute('y2', t.y);
-    line.setAttribute('stroke', hue); line.setAttribute('stroke-width', w);
-    line.setAttribute('opacity', '0.6');
-    svg.appendChild(line);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const midX = (s.x + t.x) / 2;
+    const midY = (s.y + t.y) / 2 - 18;
+    const w = Math.max(0.8, (l.effective_weight || 0.3) * 5);
+    const color = l.effective_weight > 0.5 ? 'var(--green)' : l.effective_weight > 0.25 ? 'var(--amber)' : 'var(--rose)';
+    path.setAttribute('d', `M ${s.x} ${s.y} Q ${midX} ${midY} ${t.x} ${t.y}`);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', w);
+    path.setAttribute('opacity', '0.58');
+    svg.appendChild(path);
   });
 
-  // Nodes.
   nodes.forEach(n => {
     const p = pos[n.id];
     if (!p) return;
     const isEntry = n.node_type === 'entry';
-    const fill = isEntry ? '#4299e1' : (n.decay_class === 'core' ? '#d69e2e' : '#718096');
-    const r = isEntry ? 6 : 5;
+    const isCore = n.decay_class === 'core';
+    const r = Math.min(12, 4.5 + Math.sqrt(degree[n.id] || 0) * 1.5 + (isEntry ? 1 : 0));
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', p.x); circle.setAttribute('cy', p.y);
-    circle.setAttribute('r', r); circle.setAttribute('fill', fill);
-    circle.setAttribute('opacity', n.status === 'dormant' ? '0.3' : '0.85');
-    circle.innerHTML = `<title>${n.label}</title>`;
+    circle.setAttribute('cx', p.x);
+    circle.setAttribute('cy', p.y);
+    circle.setAttribute('r', r);
+    circle.setAttribute('fill', isEntry ? 'var(--teal)' : isCore ? 'var(--amber)' : 'var(--blue)');
+    circle.setAttribute('stroke', '#0b0d12');
+    circle.setAttribute('stroke-width', '1.5');
+    circle.setAttribute('opacity', n.status === 'dormant' ? '0.34' : '0.88');
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = n.label || n.id;
+    circle.appendChild(title);
     svg.appendChild(circle);
+  });
+}
+
+function layoutBand(items, centerX, radiusX, height, pos) {
+  const rows = Math.max(1, Math.ceil(Math.sqrt(items.length || 1)));
+  items.forEach((n, i) => {
+    const row = i % rows;
+    const col = Math.floor(i / rows);
+    const x = centerX + ((col % 6) - 2.5) * Math.max(18, radiusX / 4);
+    const y = 54 + row * ((height - 108) / Math.max(rows - 1, 1));
+    pos[n.id] = { x, y };
+  });
+}
+
+function layoutLinked(nodes, links, degree, W, H, pos) {
+  const sorted = [...nodes].sort((a, b) => (degree[b.id] || 0) - (degree[a.id] || 0));
+  sorted.forEach((n, i) => {
+    const ring = i < 10 ? 0 : i < 40 ? 1 : 2;
+    const ringIndex = ring === 0 ? i : ring === 1 ? i - 10 : i - 40;
+    const ringCount = ring === 0 ? Math.min(10, sorted.length) : ring === 1 ? Math.min(30, sorted.length - 10) : Math.max(1, sorted.length - 40);
+    const angle = (2 * Math.PI * ringIndex) / Math.max(ringCount, 1) + ring * 0.26;
+    const rx = W * (0.16 + ring * 0.13);
+    const ry = H * (0.15 + ring * 0.12);
+    pos[n.id] = { x: W / 2 + rx * Math.cos(angle), y: H / 2 + ry * Math.sin(angle) };
   });
 }
 
@@ -180,6 +505,7 @@ async function refresh() {
       fetchJSON('/api/health'),
       fetchJSON('/api/graph'),
     ]);
+    renderMetrics(health, graph);
     renderHealth(health);
     renderGraph(graph);
   } catch (e) {
@@ -187,8 +513,9 @@ async function refresh() {
   }
 }
 
+document.getElementById('refresh-button').addEventListener('click', refresh);
 refresh();
-setInterval(refresh, 30000);
+setInterval(refresh, 15000);
 </script>
 </body>
 </html>

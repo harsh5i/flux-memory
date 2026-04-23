@@ -59,6 +59,7 @@ def export_json(store: FluxStore, now: datetime | None = None) -> dict:
     return {
         "directed": True,
         "multigraph": False,
+        "stats": _graph_stats(store),
         "nodes": [{"id": n["id"], **{k: v for k, v in n.items() if k != "id"}}
                   for n in nodes],
         "links": [{"source": e["source"], "target": e["target"],
@@ -183,6 +184,27 @@ def _load_graph(store: FluxStore, now: datetime) -> tuple[list[dict], list[dict]
         })
 
     return nodes, edges
+
+
+def _graph_stats(store: FluxStore) -> dict[str, int]:
+    def count(sql: str) -> int:
+        row = store.conn.execute(sql).fetchone()
+        return int(row["n"] if row else 0)
+
+    grains = count("SELECT COUNT(*) AS n FROM grains")
+    active_grains = count("SELECT COUNT(*) AS n FROM grains WHERE status='active'")
+    entries = count("SELECT COUNT(*) AS n FROM entries")
+    conduits = count("SELECT COUNT(*) AS n FROM conduits")
+    embeddings = count("SELECT COUNT(*) AS n FROM grain_embeddings")
+    dormant_grains = count("SELECT COUNT(*) AS n FROM grains WHERE status='dormant'")
+    return {
+        "grains": grains,
+        "active_grains": active_grains,
+        "dormant_grains": dormant_grains,
+        "entries": entries,
+        "conduits": conduits,
+        "embeddings": embeddings,
+    }
 
 
 def _add_graphml_keys(root: ET.Element) -> None:

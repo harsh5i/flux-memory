@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -74,6 +75,52 @@ class TestWarmupCommand:
 
         assert result.exit_code == 1
         assert "Instance 'missing' not initialized" in result.output
+
+
+class TestRebuildGraphCommand:
+    def test_rebuild_graph_command_reports_stats(self, tmp_path, monkeypatch):
+        _make_instance(tmp_path, monkeypatch)
+
+        def fake_rebuild(name, limit=None):
+            assert name == "test1"
+            assert limit == 12
+            return {
+                "grains_scanned": 15,
+                "grains_rebuilt": 10,
+                "embeddings_created": 9,
+                "conduits_created": 42,
+            }
+
+        monkeypatch.setattr(flux_cli, "_rebuild_instance_graph", fake_rebuild)
+
+        result = CliRunner().invoke(
+            flux_cli.cli,
+            ["rebuild-graph", "--name", "test1", "--limit", "12"],
+        )
+
+        assert result.exit_code == 0
+        assert "Graph rebuild complete: 10 rebuilt, 9 embeddings, 42 conduits" in result.output
+
+    def test_rebuild_graph_requires_initialized_instance(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(flux_cli, "_FLUX_HOME", tmp_path)
+
+        result = CliRunner().invoke(flux_cli.cli, ["rebuild-graph", "--name", "missing"])
+
+        assert result.exit_code == 1
+        assert "Instance 'missing' not initialized" in result.output
+
+    def test_rebuild_graph_reports_locked_database(self, tmp_path, monkeypatch):
+        _make_instance(tmp_path, monkeypatch)
+
+        def fake_rebuild(name, limit=None):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(flux_cli, "_rebuild_instance_graph", fake_rebuild)
+
+        result = CliRunner().invoke(flux_cli.cli, ["rebuild-graph", "--name", "test1"])
+
+        assert result.exit_code == 1
+        assert "Database is locked" in result.output
 
 
 class TestMCPMessaging:

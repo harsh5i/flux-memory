@@ -58,6 +58,26 @@ class TestFluxStore:
         count = store.conn.execute("SELECT COUNT(*) AS n FROM entries").fetchone()["n"]
         assert count >= 1
 
+    def test_llm_failure_fallback_still_wires_graph(self, store):
+        class FailingLLM:
+            def complete(self, prompt):
+                raise RuntimeError("llm unavailable")
+
+        emb = MockEmbeddingBackend()
+        gid = flux_store("User prefers compact dashboard metrics", store=store,
+                         llm=FailingLLM(), emb=emb)
+
+        assert store.get_grain(gid) is not None
+        embedding_count = store.conn.execute(
+            "SELECT COUNT(*) AS n FROM grain_embeddings WHERE grain_id = ?",
+            (gid,),
+        ).fetchone()["n"]
+        entry_count = store.conn.execute("SELECT COUNT(*) AS n FROM entries").fetchone()["n"]
+        conduit_count = store.conn.execute("SELECT COUNT(*) AS n FROM conduits").fetchone()["n"]
+        assert embedding_count == 1
+        assert entry_count >= 1
+        assert conduit_count >= 1
+
 
 # ===================================================================== flux_retrieve
 
