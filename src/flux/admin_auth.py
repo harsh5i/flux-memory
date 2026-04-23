@@ -101,6 +101,25 @@ class AdminAuth:
         self._save()
         return totp_uri
 
+    def verify_totp_code(self, code: str) -> bool:
+        """Return True when a setup/login TOTP code matches the stored secret."""
+        if not self._state.get("totp_enabled"):
+            return False
+        try:
+            import pyotp
+        except ImportError:
+            return False
+        secret = self._state.get("totp_secret")
+        if not secret:
+            return False
+        return bool(pyotp.TOTP(secret).verify(code, valid_window=1))
+
+    def disable_totp(self) -> None:
+        """Disable TOTP for the instance while preserving the admin password."""
+        self._state["totp_enabled"] = False
+        self._state.pop("totp_secret", None)
+        self._save()
+
     def change_password(self, new_password: str) -> None:
         if len(new_password) < 8:
             raise ValueError("Password must be at least 8 characters.")
@@ -178,20 +197,22 @@ class AdminAuth:
         except ImportError:
             return None
 
-    def show_qr(self, label: str = "flux-admin") -> None:
+    def show_qr(self, label: str = "flux-admin") -> bool:
         uri = self.totp_uri(label)
         if not uri:
             print("TOTP not enabled.")
-            return
+            return False
         try:
             import qrcode
             qr = qrcode.QRCode()
             qr.add_data(uri)
             qr.make(fit=True)
             qr.print_ascii(invert=True)
+            return True
         except ImportError:
             print(f"TOTP URI (scan with authenticator app):\n{uri}")
             print("(install 'qrcode' for inline QR: pip install qrcode)")
+            return False
 
     # ---------------------------------------------------------------- internals
 

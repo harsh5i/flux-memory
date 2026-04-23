@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.pytest_tmp/
 .hypothesis/
 *.db
 *.db-shm

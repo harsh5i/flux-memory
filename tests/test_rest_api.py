@@ -44,6 +44,15 @@ def client(svc, cfg):
 
 # ---------------------------------------------------------------- /health
 
+class TestRootEndpoint:
+    def test_root_returns_service_info(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["name"] == "Flux Memory"
+        assert body["health"] == "/health"
+
+
 class TestHealthEndpoint:
     def test_health_returns_200(self, client):
         resp = client.get("/health")

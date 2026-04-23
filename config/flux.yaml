@@ -83,6 +83,17 @@ EXPLORATION_BOOST: 1.5
 # --- Admin channel ---
 PURGE_UNDO_WINDOW_HOURS: 24.0
 
+# --- Local services ---
+MCP_SERVER_NAME: flux-memory
+MCP_HOST: 127.0.0.1
+MCP_PORT: 7464
+REST_HOST: 127.0.0.1
+REST_PORT: 7465
+ADMIN_REST_HOST: 127.0.0.1
+ADMIN_REST_PORT: 7463
+DASHBOARD_HOST: 127.0.0.1
+DASHBOARD_PORT: 7462
+
 # --- LLM backend (not in spec §5; implementation-specific) ---
 # LLM_BASE_URL: http://localhost:11434   # Ollama API base URL
 # LLM_MODEL: llama3.1:8b

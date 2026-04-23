@@ -8,7 +8,11 @@ Subcommands:
               optionally sets up TOTP 2FA.
 
   flux start  [--name NAME]
-              Launch MCP server, REST API, and dashboard as background services.
+              Launch REST API and dashboard as background services.
+
+  flux mcp    [--name NAME]
+              Run the stdio MCP server for one instance. MCP clients launch
+              this command directly.
 
   flux stop   [--name NAME]
               Gracefully stop all services for the named instance.
@@ -34,6 +38,9 @@ import signal
 import subprocess
 import sys
 import textwrap
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 _VERSION = "0.6.0"
@@ -59,6 +66,108 @@ def _db_file(name: str, db: str | None = None) -> Path:
     return _instance_dir(name) / "flux.db"
 
 
+def _log_file(name: str) -> Path:
+    return _instance_dir(name) / "flux.log"
+
+
+def _integrations_dir(name: str) -> Path:
+    return _instance_dir(name) / "integrations"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _url_ok(url: str, timeout: float = 2.0) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return 200 <= resp.status < 400
+    except (OSError, urllib.error.URLError):
+        return False
+
+
+def _wait_for_url(url: str, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _url_ok(url, timeout=1.0):
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def _mcp_command_parts(name: str) -> tuple[str, list[str]]:
+    return sys.executable, ["-m", "flux.cli", "mcp", "--name", name]
+
+
+def _toml_literal(value: str) -> str:
+    return json.dumps(value)
+
+
+def _write_mcp_client_configs(name: str) -> dict[str, Path]:
+    command, args = _mcp_command_parts(name)
+    server_key = f"flux-{name}"
+    out = _integrations_dir(name)
+    out.mkdir(parents=True, exist_ok=True)
+
+    codex = (
+        f"[mcp_servers.\"{server_key}\"]\n"
+        f"command = {_toml_literal(command)}\n"
+        f"args = {json.dumps(args)}\n"
+    )
+    claude = {
+        "mcpServers": {
+            server_key: {
+                "command": command,
+                "args": args,
+            }
+        }
+    }
+
+    codex_path = out / "codex.toml"
+    claude_path = out / "claude_desktop.json"
+    cursor_path = out / "cursor.json"
+    codex_path.write_text(codex, encoding="utf-8")
+    claude_path.write_text(json.dumps(claude, indent=2), encoding="utf-8")
+    cursor_path.write_text(json.dumps(claude, indent=2), encoding="utf-8")
+    return {
+        "codex": codex_path,
+        "claude": claude_path,
+        "cursor": cursor_path,
+    }
+
+
+def _configured_pids_from_ports(ports: list[int]) -> set[int]:
+    if os.name != "nt":
+        return set()
+    try:
+        output = subprocess.check_output(
+            ["netstat", "-ano"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return set()
+    pids: set[int] = set()
+    wanted = {f":{p}" for p in ports}
+    for line in output.splitlines():
+        if "LISTENING" not in line:
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local = parts[1]
+        if any(marker in local for marker in wanted):
+            try:
+                pids.add(int(parts[-1]))
+            except ValueError:
+                pass
+    return pids
+
+
 # ---------------------------------------------------------------- main entry
 
 def main() -> None:
@@ -66,7 +175,7 @@ def main() -> None:
     try:
         import click
     except ImportError:
-        print("ERROR: 'click' package required. pip install flux-memory[cli]")
+        print("ERROR: 'click' package required. pip install flux-memory")
         sys.exit(1)
     cli()
 
@@ -87,7 +196,7 @@ try:
     @click.group()
     @click.version_option(version=_VERSION, prog_name="flux")
     def cli():
-        """Flux Memory — self-organizing retrieval fabric for AI memory."""
+        """Flux Memory - self-organizing retrieval fabric for AI memory."""
 
     # ---------------------------------------------------------------- init
 
@@ -104,14 +213,14 @@ try:
         db_path = _db_file(name, db)
 
         click.echo(f"\n{'='*60}")
-        click.echo(f"  Flux Memory — Instance Setup: {name}")
+        click.secho(f"  Flux Memory - Instance Setup: {name}", fg="cyan", bold=True)
         click.echo(f"{'='*60}\n")
 
         # Operating mode.
         if mode is None:
             click.echo("Choose operating mode:")
-            click.echo("  1) caller_extracts  — AI does feature/grain extraction (no local LLM needed)")
-            click.echo("  2) flux_extracts    — Flux runs its own LLM via Ollama (requires Ollama)\n")
+            click.echo("  1) caller_extracts  - AI does feature/grain extraction (no local LLM needed)")
+            click.echo("  2) flux_extracts    - Flux runs its own LLM via Ollama (requires Ollama)\n")
             choice = click.prompt("Mode", type=click.Choice(["1", "2"]), default="2")
             mode = "caller_extracts" if choice == "1" else "flux_extracts"
 
@@ -122,7 +231,7 @@ try:
         }
         cfg_path = _config_file(name)
         import yaml
-        cfg_path.write_text(yaml.dump(config, default_flow_style=False))
+        cfg_path.write_text(yaml.dump(config, default_flow_style=False), encoding="utf-8")
 
         click.echo(f"\nConfig written to: {cfg_path}")
         click.echo(f"Database will be:  {db_path}")
@@ -154,14 +263,30 @@ try:
 
         if totp_uri:
             click.echo("\n--- TOTP Setup ---")
-            click.echo("Scan the QR code below with your authenticator app")
-            click.echo("(Google Authenticator, Authy, 1Password, etc.):\n")
-            auth.show_qr()
-            click.echo(f"\nTOTP URI (if QR display failed):\n{totp_uri}\n")
-            click.confirm("Have you scanned the QR code?", default=True)
+            shown = auth.show_qr()
+            if shown:
+                click.echo("\nScan the QR code above with your authenticator app.")
+            else:
+                click.echo("\nQR display unavailable. Use this manual TOTP URI:")
+            click.echo(f"{totp_uri}\n")
+            while True:
+                code = click.prompt("Enter the 6-digit code from your authenticator")
+                if auth.verify_totp_code(code):
+                    click.secho("TOTP verified.", fg="green")
+                    break
+                click.secho("Invalid TOTP code.", fg="red")
+                if not click.confirm("Try another code?", default=True):
+                    auth.disable_totp()
+                    click.secho("TOTP disabled for this instance.", fg="yellow")
+                    break
 
-        click.echo(f"\n✓ Instance '{name}' initialized.")
-        click.echo(f"  Run `flux start --name {name}` to launch services.")
+        snippets = _write_mcp_client_configs(name)
+
+        click.secho(f"\nOK Instance '{name}' initialized.", fg="green", bold=True)
+        click.echo(f"  Run `flux start --name {name}` to launch REST and dashboard.")
+        click.echo(f"  Run `flux mcp --name {name}` from your MCP client config.")
+        click.echo(f"  MCP client snippets written to: {_integrations_dir(name)}")
+        click.echo(f"  Codex snippet: {snippets['codex']}")
 
     # ---------------------------------------------------------------- start
 
@@ -170,7 +295,7 @@ try:
     @click.option("--foreground", is_flag=True, default=False,
                   help="Run in foreground (blocking). Default: background.")
     def start(name: str, foreground: bool) -> None:
-        """Launch MCP server, REST API, and dashboard."""
+        """Launch REST API and dashboard."""
         idir = _instance_dir(name)
         if not _config_file(name).exists():
             click.echo(f"Instance '{name}' not initialized. Run: flux init --name {name}")
@@ -197,17 +322,44 @@ try:
         if foreground:
             _run_services(name, db_path, cfg)
         else:
+            log_path = _log_file(name)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_handle = log_path.open("ab")
             proc = subprocess.Popen(
                 [sys.executable, "-m", "flux.cli", "start",
                  "--name", name, "--foreground"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
-            pid_path.write_text(str(proc.pid))
-            click.echo(f"  Services started (PID {proc.pid})")
-            click.echo(f"  REST API:  http://localhost:{cfg.REST_PORT}")
+            log_handle.close()
+            pid_path.write_text(str(proc.pid), encoding="utf-8")
+
+            rest_url = f"http://{cfg.REST_HOST}:{cfg.REST_PORT}/health"
+            dashboard_url = f"http://{cfg.DASHBOARD_HOST}:{cfg.DASHBOARD_PORT}/"
+            dashboard_api = f"http://{cfg.DASHBOARD_HOST}:{cfg.DASHBOARD_PORT}/api/health"
+
+            rest_ok = _wait_for_url(rest_url)
+            dash_ok = _wait_for_url(dashboard_url) and _wait_for_url(dashboard_api)
+
+            if proc.poll() is not None:
+                click.secho(f"  Services failed to stay running (PID {proc.pid}).", fg="red")
+                click.echo(f"  Log: {log_path}")
+                sys.exit(1)
+
+            if rest_ok and dash_ok:
+                click.secho(f"  Services started (PID {proc.pid})", fg="green")
+            else:
+                click.secho(f"  Services partially started (PID {proc.pid})", fg="yellow")
+                if not rest_ok:
+                    click.echo(f"  REST health not reachable: {rest_url}")
+                if not dash_ok:
+                    click.echo(f"  Dashboard not fully reachable: {dashboard_url}")
+                click.echo(f"  Log: {log_path}")
+
+            click.echo(f"  REST API:  http://localhost:{cfg.REST_PORT}/health")
             click.echo(f"  Dashboard: http://localhost:{cfg.DASHBOARD_PORT}")
+            click.echo(f"  MCP: configure your client with `flux mcp --name {name}`")
             click.echo(f"  Stop with: flux stop --name {name}")
 
     # ---------------------------------------------------------------- stop
@@ -216,18 +368,41 @@ try:
     @click.option("--name", default=_DEFAULT_NAME, show_default=True)
     def stop(name: str) -> None:
         """Stop all services for the named instance."""
+        cfg_path = _config_file(name)
+        cfg = None
+        if cfg_path.exists():
+            from flux.config import Config
+            cfg = Config.from_yaml(cfg_path)
+
         pid_path = _pid_file(name)
-        if not pid_path.exists():
-            click.echo(f"No PID file found for instance '{name}'. May not be running.")
+        pids: set[int] = set()
+        if pid_path.exists():
+            try:
+                pids.add(int(pid_path.read_text(encoding="utf-8").strip()))
+            except ValueError:
+                pid_path.unlink(missing_ok=True)
+
+        if cfg is not None:
+            pids.update(_configured_pids_from_ports([cfg.REST_PORT, cfg.DASHBOARD_PORT]))
+
+        if not pids:
+            click.echo(f"No running process found for instance '{name}'.")
             return
-        pid = int(pid_path.read_text().strip())
-        try:
-            os.kill(pid, signal.SIGTERM)
-            pid_path.unlink(missing_ok=True)
-            click.echo(f"Instance '{name}' (PID {pid}) stopped.")
-        except OSError as exc:
-            click.echo(f"Could not stop PID {pid}: {exc}")
-            pid_path.unlink(missing_ok=True)
+
+        stopped = []
+        failed = []
+        for pid in sorted(pids):
+            try:
+                os.kill(pid, signal.SIGTERM)
+                stopped.append(pid)
+            except OSError as exc:
+                failed.append((pid, exc))
+
+        pid_path.unlink(missing_ok=True)
+        if stopped:
+            click.secho(f"Stopped instance '{name}' process(es): {', '.join(map(str, stopped))}", fg="green")
+        for pid, exc in failed:
+            click.secho(f"Could not stop PID {pid}: {exc}", fg="red")
 
     # ---------------------------------------------------------------- status
 
@@ -236,39 +411,82 @@ try:
     def status(name: str) -> None:
         """Show running status and health for the named instance."""
         pid_path = _pid_file(name)
-        running = False
+        pid_running = False
+        pid = None
         if pid_path.exists():
-            pid = int(pid_path.read_text().strip())
             try:
+                pid = int(pid_path.read_text(encoding="utf-8").strip())
                 os.kill(pid, 0)
-                running = True
-                click.echo(f"Instance '{name}': RUNNING (PID {pid})")
-            except OSError:
-                click.echo(f"Instance '{name}': STOPPED (stale PID file)")
+                pid_running = True
+            except (OSError, ValueError):
                 pid_path.unlink(missing_ok=True)
-        else:
-            click.echo(f"Instance '{name}': STOPPED")
 
         cfg_path = _config_file(name)
         if cfg_path.exists():
             from flux.config import Config
             cfg = Config.from_yaml(cfg_path)
+            rest_url = f"http://{cfg.REST_HOST}:{cfg.REST_PORT}/health"
+            dashboard_url = f"http://{cfg.DASHBOARD_HOST}:{cfg.DASHBOARD_PORT}/"
+            rest_ok = _url_ok(rest_url)
+            dashboard_ok = _url_ok(dashboard_url)
+            running = pid_running or rest_ok or dashboard_ok
+            if running:
+                pid_text = f"PID {pid}" if pid_running and pid is not None else "no PID file"
+                click.echo(f"Instance '{name}': RUNNING ({pid_text})")
+            else:
+                click.echo(f"Instance '{name}': STOPPED")
             click.echo(f"  Mode:      {cfg.OPERATING_MODE}")
-            click.echo(f"  REST port: {cfg.REST_PORT}")
-            click.echo(f"  Dashboard: {cfg.DASHBOARD_PORT}")
+            click.echo(f"  REST:      {'up' if rest_ok else 'down'}  http://localhost:{cfg.REST_PORT}/health")
+            click.echo(f"  Dashboard: {'up' if dashboard_ok else 'down'}  http://localhost:{cfg.DASHBOARD_PORT}")
+            click.echo(f"  MCP:       configure client with `flux mcp --name {name}`")
 
-        if running:
-            try:
-                import urllib.request
-                from flux.config import Config
-                cfg = Config.from_yaml(cfg_path) if cfg_path.exists() else Config()
-                with urllib.request.urlopen(
-                    f"http://localhost:{cfg.REST_PORT}/health", timeout=3
-                ) as resp:
-                    h = json.loads(resp.read())
-                    click.echo(f"  Health:    {h.get('status', 'unknown')}")
-            except Exception:
-                click.echo("  Health:    (could not reach REST API)")
+            if rest_ok:
+                try:
+                    with urllib.request.urlopen(rest_url, timeout=3) as resp:
+                        h = json.loads(resp.read())
+                        click.echo(f"  Health:    {h.get('status', 'unknown')}")
+                except Exception:
+                    click.echo("  Health:    (could not parse REST health)")
+        else:
+            click.echo(f"Instance '{name}': STOPPED")
+
+    # ---------------------------------------------------------------- mcp
+
+    @cli.command("mcp")
+    @click.option("--name", default=_DEFAULT_NAME, show_default=True)
+    def mcp_server(name: str) -> None:
+        """Run the stdio MCP server for an initialized instance."""
+        cfg_path = _config_file(name)
+        if not cfg_path.exists():
+            click.echo(f"Instance '{name}' not initialized. Run: flux init --name {name}", err=True)
+            sys.exit(1)
+
+        from flux.config import Config
+        from flux.storage import FluxStore
+        from flux.service import FluxService
+        from flux.mcp_server import run_stdio
+
+        cfg = Config.from_yaml(cfg_path)
+        store = FluxStore(_db_file(name))
+        service = FluxService(store, cfg=cfg)
+        service.start()
+        try:
+            run_stdio(store, service._llm, service._emb, cfg, service=service)
+        finally:
+            service.stop()
+            store.close()
+
+    @cli.command("mcp-config")
+    @click.option("--name", default=_DEFAULT_NAME, show_default=True)
+    def mcp_config(name: str) -> None:
+        """Write MCP client config snippets for Codex, Claude, and Cursor."""
+        if not _config_file(name).exists():
+            click.echo(f"Instance '{name}' not initialized. Run: flux init --name {name}")
+            sys.exit(1)
+        paths = _write_mcp_client_configs(name)
+        click.secho(f"MCP client snippets written to {_integrations_dir(name)}", fg="green")
+        for label, path in paths.items():
+            click.echo(f"  {label}: {path}")
 
     # ---------------------------------------------------------------- admin
 
@@ -401,6 +619,7 @@ Admin Menu:
     def _run_services(name: str, db_path: Path, cfg) -> None:
         """Start all services in the foreground (blocking)."""
         import threading
+        import traceback
         from flux.storage import FluxStore
         from flux.service import FluxService
 
@@ -418,32 +637,38 @@ Admin Menu:
             app = build_app(service, cfg)
 
             def _rest():
-                uvicorn.run(app, host="0.0.0.0", port=cfg.REST_PORT, log_level="warning")
+                uvicorn.run(app, host=cfg.REST_HOST, port=cfg.REST_PORT, log_level="warning")
 
             t = threading.Thread(target=_rest, name="flux-rest", daemon=True)
             t.start()
             threads.append(t)
         except ImportError:
-            pass
+            print("REST API requires fastapi and uvicorn.", file=sys.stderr)
+            traceback.print_exc()
 
         # Dashboard thread.
         try:
             from flux.dashboard import run_dashboard
             t = threading.Thread(
                 target=run_dashboard,
-                kwargs={"store": store, "cfg": cfg, "port": cfg.DASHBOARD_PORT},
+                kwargs={
+                    "store": store,
+                    "cfg": cfg,
+                    "host": cfg.DASHBOARD_HOST,
+                    "port": cfg.DASHBOARD_PORT,
+                },
                 name="flux-dashboard",
                 daemon=True,
             )
             t.start()
             threads.append(t)
         except Exception:
-            pass
+            print("Dashboard failed to start.", file=sys.stderr)
+            traceback.print_exc()
 
-        # MCP server (blocking, must be last).
         try:
-            from flux.mcp_server import run_stdio
-            run_stdio(store, service._llm, service._emb, cfg)
+            while True:
+                time.sleep(1)
         except KeyboardInterrupt:
             pass
         finally:
@@ -453,7 +678,7 @@ Admin Menu:
 except ImportError:
     # click not installed — provide a minimal shim so `python -m flux.cli` gives useful message.
     def main() -> None:  # type: ignore[misc]
-        print("Flux Memory CLI requires 'click'. Install: pip install 'flux-memory[cli]'")
+        print("Flux Memory CLI requires 'click'. Install: pip install flux-memory")
         sys.exit(1)
 
     def cli() -> None:  # type: ignore[misc]

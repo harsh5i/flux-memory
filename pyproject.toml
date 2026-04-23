@@ -16,6 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
@@ -32,6 +33,9 @@ dependencies = [
     "click>=8.0",
     "argon2-cffi>=21.0",
     "pyotp>=2.8",
+    "qrcode>=7.0",
+    "mcp>=1.0",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
@@ -49,9 +53,9 @@ qr = [
 flux = "flux.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/harsh5i/v0.5-flux-memory"
-Repository = "https://github.com/harsh5i/v0.5-flux-memory"
-Documentation = "https://github.com/harsh5i/v0.5-flux-memory/blob/master/docs/flux-memory-docs.md"
+Homepage = "https://github.com/harsh5i/flux-memory"
+Repository = "https://github.com/harsh5i/flux-memory"
+Documentation = "https://github.com/harsh5i/flux-memory/blob/master/docs/flux-memory-docs.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

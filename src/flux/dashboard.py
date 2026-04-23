@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -232,9 +232,9 @@ def run_dashboard(
             self.end_headers()
             self.wfile.write(body)
 
-    server = HTTPServer((host, port), Handler)
+    server = ThreadingHTTPServer((host, port), Handler)
     logger.info("Flux dashboard running at http://%s:%d", host, port)
-    print(f"Flux Memory dashboard → http://{host}:{port}")
+    print(f"Flux Memory dashboard -> http://{host}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

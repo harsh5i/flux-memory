@@ -1,7 +1,8 @@
 """REST API for Flux Memory (§1A.4).
 
 Exposes all public operations over HTTP using FastAPI.
-Runs alongside the MCP server and Python SDK — same operations, three equal paths.
+Runs alongside the dashboard and Python SDK. MCP clients launch the stdio
+MCP server separately with `flux mcp --name <instance>`.
 
 Endpoints:
   POST /store              store a grain (or batch)
@@ -80,6 +81,22 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     # ------------------------------------------------------------------
     # Endpoints
     # ------------------------------------------------------------------
+
+    @app.get("/")
+    def root():
+        return {
+            "name": "Flux Memory",
+            "version": "0.6.0",
+            "health": "/health",
+            "docs": "/docs",
+            "endpoints": {
+                "store": "/store",
+                "store_batch": "/store/batch",
+                "retrieve": "/retrieve",
+                "feedback": "/feedback",
+                "grains": "/grains",
+            },
+        }
 
     @app.post("/store")
     def store(body: StoreRequest, request: Request):
