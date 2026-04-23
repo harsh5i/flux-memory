@@ -140,6 +140,10 @@ def _write_mcp_client_configs(name: str) -> dict[str, Path]:
     }
 
 
+def _mcp_client_config_hint(name: str) -> str:
+    return str(_integrations_dir(name) / "codex.toml")
+
+
 def _configured_pids_from_ports(ports: list[int]) -> set[int]:
     if os.name != "nt":
         return set()
@@ -284,7 +288,7 @@ try:
 
         click.secho(f"\nOK Instance '{name}' initialized.", fg="green", bold=True)
         click.echo(f"  Run `flux start --name {name}` to launch REST and dashboard.")
-        click.echo(f"  Run `flux mcp --name {name}` from your MCP client config.")
+        click.echo(f"  MCP is stdio/client-launched; add the generated snippet to your MCP client.")
         click.echo(f"  MCP client snippets written to: {_integrations_dir(name)}")
         click.echo(f"  Codex snippet: {snippets['codex']}")
 
@@ -359,7 +363,8 @@ try:
 
             click.echo(f"  REST API:  http://localhost:{cfg.REST_PORT}/health")
             click.echo(f"  Dashboard: http://localhost:{cfg.DASHBOARD_PORT}")
-            click.echo(f"  MCP: configure your client with `flux mcp --name {name}`")
+            click.echo("  MCP: stdio/client-launched; not started by `flux start`")
+            click.echo(f"       Add client config from: {_mcp_client_config_hint(name)}")
             click.echo(f"  Stop with: flux stop --name {name}")
 
     # ---------------------------------------------------------------- stop
@@ -438,7 +443,8 @@ try:
             click.echo(f"  Mode:      {cfg.OPERATING_MODE}")
             click.echo(f"  REST:      {'up' if rest_ok else 'down'}  http://localhost:{cfg.REST_PORT}/health")
             click.echo(f"  Dashboard: {'up' if dashboard_ok else 'down'}  http://localhost:{cfg.DASHBOARD_PORT}")
-            click.echo(f"  MCP:       configure client with `flux mcp --name {name}`")
+            click.echo("  MCP:       stdio/client-launched; not a background network server")
+            click.echo(f"             Add client config from: {_mcp_client_config_hint(name)}")
 
             if rest_ok:
                 try:

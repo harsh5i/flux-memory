@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from click.testing import CliRunner
 
@@ -47,3 +48,14 @@ class TestStartHelp:
 
         assert result.exit_code == 0
         assert "Launch REST API and dashboard" in result.output
+
+
+class TestMCPMessaging:
+    def test_mcp_client_config_hint_points_to_codex_snippet(self, monkeypatch):
+        monkeypatch.setattr(flux_cli, "_FLUX_HOME", Path("flux-home"))
+
+        assert str(flux_cli._mcp_client_config_hint("test1")).endswith(
+            "test1\\integrations\\codex.toml"
+        ) or str(flux_cli._mcp_client_config_hint("test1")).endswith(
+            "test1/integrations/codex.toml"
+        )

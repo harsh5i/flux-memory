@@ -66,6 +66,10 @@ flux mcp --name my-memory
 
 from your MCP client configuration.
 
+In other words, `flux start` starts only the REST API and dashboard. It does
+not start a background network MCP server that Codex, Claude, Cursor, or other
+clients can auto-detect. Each MCP client must have its own config entry.
+
 ### Stop services
 
 ```bash
