@@ -149,6 +149,25 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
   }
   .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-muted); }
   .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .legend-line { width: 22px; border-radius: 999px; background: var(--cyan); flex-shrink: 0; }
+  .legend-line.weak { height: 1px; opacity: 0.35; }
+  .legend-line.strong { height: 4px; box-shadow: 0 0 10px rgba(34,211,238,0.35); }
+  #activity-indicator {
+    position: absolute; top: 10px; left: 10px;
+    display: flex; align-items: center; gap: 7px;
+    background: rgba(15,17,23,0.8); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 5px 9px; font-size: 10px;
+    font-family: var(--font-mono); color: var(--text-muted);
+    backdrop-filter: blur(4px); pointer-events: none;
+  }
+  #activity-indicator.live { color: var(--cyan); border-color: rgba(34,211,238,0.35); }
+  .activity-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-dim); box-shadow: 0 0 0 rgba(34,211,238,0);
+  }
+  #activity-indicator.live .activity-dot {
+    background: var(--cyan); box-shadow: 0 0 14px rgba(34,211,238,0.7);
+  }
   #tooltip {
     position: fixed; pointer-events: none; z-index: 999;
     background: var(--surface); border: 1px solid var(--border2);
@@ -329,6 +348,10 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
       bottom: calc(76px + env(safe-area-inset-bottom, 0px));
       border-radius: 10px; background: rgba(8,10,14,0.72);
     }
+    #activity-indicator {
+      top: 58px; left: 10px; right: auto;
+      border-radius: 10px; background: rgba(8,10,14,0.72);
+    }
     #tooltip { display: none; }
 
     #right-panel {
@@ -491,11 +514,14 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
       <div id="graph-container">
         <canvas id="graph-canvas" style="width:100%;height:100%;display:block;"></canvas>
         <div id="graph-stats">nodes: <span id="gs-nodes">0</span> · edges: <span id="gs-edges">0</span></div>
+        <div id="activity-indicator"><span class="activity-dot"></span><span id="activity-text">watching events</span></div>
         <div id="graph-overlay">
           <div class="legend-item"><div class="legend-dot" style="background:#22d3ee"></div>Grain (working)</div>
           <div class="legend-item"><div class="legend-dot" style="background:#e0f2fe"></div>Grain (core)</div>
           <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>Entry</div>
           <div class="legend-item"><div class="legend-dot" style="background:#334155"></div>Dormant</div>
+          <div class="legend-item"><div class="legend-line weak"></div>Weak conduit</div>
+          <div class="legend-item"><div class="legend-line strong"></div>Strong conduit</div>
         </div>
         <div id="no-data-msg" style="display: none;">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12" stroke-opacity="0.7"></line><line x1="12" y1="16" x2="12.01" y2="16" stroke-opacity="0.7"></line></svg>
@@ -743,11 +769,26 @@ function nodeRadius(n) {
   if (n.decay_class === 'core') return 10;
   return 8;
 }
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+function edgeWeight(l) {
+  const v = Number(l.effective_weight ?? l.weight ?? 0);
+  return Number.isFinite(v) ? Math.max(0, v) : 0;
+}
+function edgeStrength(l) {
+  return clamp01(l._strength ?? Math.sqrt(Math.min(1, edgeWeight(l))));
+}
 function edgeColor(l) {
-  if (l.direction === 'bidirectional') return '#a78bfa';
-  if (l.decay_class === 'core') return '#38bdf8';
-  if (l.decay_class === 'ephemeral') return '#1e3a4a';
-  return '#1e3f5a';
+  const s = edgeStrength(l);
+  if (l.direction === 'bidirectional') return d3.interpolateRgb('#2b2544', '#a78bfa')(s);
+  if (l.decay_class === 'core') return d3.interpolateRgb('#1d3a52', '#7dd3fc')(s);
+  if (l.decay_class === 'ephemeral') return d3.interpolateRgb('#17202b', '#0e7490')(s);
+  return d3.interpolateRgb('#1b2634', '#22d3ee')(s);
+}
+function edgeWidth(l) {
+  return 0.45 + Math.pow(edgeStrength(l), 1.35) * 4.2;
+}
+function edgeAlpha(l) {
+  return 0.16 + edgeStrength(l) * 0.64;
 }
 
 function nodePassesFilters(n) {
@@ -794,6 +835,207 @@ let dashOffset = 0;
 let nudgeTimer = null;
 let searchMatchIds = new Set();
 let canvasCssWidth = 0, canvasCssHeight = 0, canvasDpr = 1;
+let activityNodePulses = new Map();
+let activityEdgePulses = new Map();
+let activityParticles = [];
+let seenEventKeys = new Set();
+let eventPollTimer = null;
+let lastActivityAt = 0;
+let activityEventEdgeKeys = null;
+
+function updateEdgeStrengthScale() {
+  if (!canvasLinks.length) return;
+  const ranked = [...canvasLinks].sort((a, b) => edgeWeight(a) - edgeWeight(b));
+  const denom = Math.max(1, ranked.length - 1);
+  ranked.forEach((edge, index) => {
+    const absolute = Math.sqrt(Math.min(1, edgeWeight(edge)));
+    const rank = index / denom;
+    edge._strength = clamp01((rank * 0.7) + (absolute * 0.3));
+  });
+}
+
+function activityColor(ev) {
+  if (ev.category === 'retrieval') return '#22d3ee';
+  if (ev.category === 'write') return '#86efac';
+  if (ev.category === 'feedback') return ev.data?.useful === false ? '#fb7185' : '#fbbf24';
+  if (ev.category === 'system') return '#a78bfa';
+  return '#38bdf8';
+}
+
+function eventKey(ev) {
+  return [ev.timestamp, ev.category, ev.event, ev.data?.trace_id, ev.data?.grain_id, ev.data?.feature]
+    .filter(Boolean).join('|');
+}
+
+function edgeKey(l) {
+  const sid = typeof l.source === 'object' ? l.source.id : l.source;
+  const tid = typeof l.target === 'object' ? l.target.id : l.target;
+  return `${sid}->${tid}`;
+}
+
+function getPulse(map, key, now) {
+  const pulse = map.get(key);
+  if (!pulse) return null;
+  const remaining = pulse.until - now;
+  if (remaining <= 0) {
+    map.delete(key);
+    return null;
+  }
+  return {...pulse, alpha: clamp01(remaining / pulse.duration)};
+}
+
+function getNodePulse(n, now) { return getPulse(activityNodePulses, n.id, now); }
+function getEdgePulse(l, now) { return getPulse(activityEdgePulses, edgeKey(l), now); }
+
+function setActivityLabel(text, color) {
+  const indicator = document.getElementById('activity-indicator');
+  const label = document.getElementById('activity-text');
+  if (!indicator || !label) return;
+  lastActivityAt = performance.now();
+  indicator.classList.add('live');
+  indicator.style.borderColor = `${color}66`;
+  label.textContent = text;
+}
+
+function pruneActivity(now) {
+  for (const [key, pulse] of activityNodePulses) {
+    if (pulse.until <= now) activityNodePulses.delete(key);
+  }
+  for (const [key, pulse] of activityEdgePulses) {
+    if (pulse.until <= now) activityEdgePulses.delete(key);
+  }
+  activityParticles = activityParticles.filter(p => now - p.start < p.duration);
+  const indicator = document.getElementById('activity-indicator');
+  const label = document.getElementById('activity-text');
+  if (indicator && label && lastActivityAt && now - lastActivityAt > 3500) {
+    indicator.classList.remove('live');
+    indicator.style.borderColor = '';
+    label.textContent = 'watching events';
+  }
+}
+
+function activateEdge(edge, color, now) {
+  const key = edgeKey(edge);
+  if (activityEventEdgeKeys?.has(key)) return;
+  activityEventEdgeKeys?.add(key);
+  activityEdgePulses.set(key, { until: now + 2400, duration: 2400, color });
+  activityParticles.push({ key, edge, start: now, duration: 1800, color });
+  if (activityParticles.length > 700) {
+    activityParticles = activityParticles.slice(-700);
+  }
+}
+
+function activateNode(node, color, now) {
+  if (!node) return 0;
+  activityNodePulses.set(node.id, { until: now + 3200, duration: 3200, color });
+  let count = 1;
+  for (const edge of canvasLinks) {
+    if (edge.source === node || edge.target === node) {
+      activateEdge(edge, color, now);
+      count++;
+    }
+  }
+  return count;
+}
+
+function activateNodeById(id, color, now) {
+  if (!id) return 0;
+  const needle = String(id);
+  const node = canvasNodes.find(n => n.id === needle || n.feature === needle || n.label === needle);
+  return activateNode(node, color, now);
+}
+
+function activateFeature(feature, color, now) {
+  if (!feature) return 0;
+  const needle = String(feature).toLowerCase();
+  let count = 0;
+  for (const node of canvasNodes) {
+    const haystack = [node.feature, node.label, node.id, node.provenance].filter(Boolean).join(' ').toLowerCase();
+    if (haystack.includes(needle)) count += activateNode(node, color, now);
+  }
+  return count;
+}
+
+function handleFluxEvent(ev) {
+  const now = performance.now();
+  const color = activityColor(ev);
+  const data = ev.data || {};
+  let activated = 0;
+  activityEventEdgeKeys = new Set();
+
+  try {
+    activated += activateNodeById(data.grain_id, color, now);
+    if (Array.isArray(data.features)) {
+      for (const feature of data.features.slice(0, 12)) activated += activateFeature(feature, color, now);
+    }
+    activated += activateFeature(data.feature, color, now);
+
+    if (ev.category === 'write' || ev.event === 'grain_stored' || ev.event === 'entry_point_created') {
+      setTimeout(() => fetchAll().catch(err => console.warn('Graph refresh after event failed', err)), 250);
+    }
+
+    const label = ev.category && ev.event ? `${ev.category}/${ev.event}` : 'flux activity';
+    setActivityLabel(label, color);
+    if (activated || ev.category !== 'system') draw();
+  } finally {
+    activityEventEdgeKeys = null;
+  }
+}
+
+async function fetchEvents() {
+  const payload = await fetchJSON('/api/events?limit=50');
+  const events = payload.events || [];
+  const firstLoad = seenEventKeys.size === 0;
+  for (const ev of events.slice().reverse()) {
+    const key = eventKey(ev);
+    if (!key || seenEventKeys.has(key)) continue;
+    seenEventKeys.add(key);
+    const when = Date.parse(ev.timestamp || '');
+    const fresh = Number.isFinite(when) && Date.now() - when < 12000;
+    if (!firstLoad || fresh) handleFluxEvent(ev);
+  }
+  if (seenEventKeys.size > 300) {
+    seenEventKeys = new Set(Array.from(seenEventKeys).slice(-200));
+  }
+}
+
+function startEventPolling() {
+  if (eventPollTimer) return;
+  fetchEvents().catch(err => console.warn('Initial event poll failed', err));
+  eventPollTimer = setInterval(() => {
+    fetchEvents().catch(err => console.warn('Event poll failed', err));
+  }, 1500);
+}
+
+function drawActivityParticles(now) {
+  for (const particle of activityParticles) {
+    const edge = particle.edge;
+    if (!edge?.source || !edge?.target) continue;
+    const sx = edge.source.x, sy = edge.source.y, tx = edge.target.x, ty = edge.target.y;
+    if (sx==null||sy==null||tx==null||ty==null) continue;
+    const raw = clamp01((now - particle.start) / particle.duration);
+    const eased = raw < 0.5 ? 2 * raw * raw : 1 - Math.pow(-2 * raw + 2, 2) / 2;
+    const x = sx + (tx - sx) * eased;
+    const y = sy + (ty - sy) * eased;
+    const tail = Math.max(0, eased - 0.08);
+    const tx2 = sx + (tx - sx) * tail;
+    const ty2 = sy + (ty - sy) * tail;
+    const alpha = Math.sin(raw * Math.PI);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = particle.color;
+    ctx.lineWidth = 2.2 / Math.max(0.65, transform.k);
+    ctx.beginPath();
+    ctx.moveTo(tx2, ty2);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.fillStyle = particle.color;
+    ctx.arc(x, y, 3.5 / Math.max(0.75, transform.k), 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
 
 function updateSearchFocus() {
   searchMatchIds = new Set();
@@ -834,6 +1076,7 @@ function renderGraph() {
     source: nodeMap.get(typeof l.source==='object'?l.source.id:l.source) || (typeof l.source==='object'?l.source.id:l.source),
     target: nodeMap.get(typeof l.target==='object'?l.target.id:l.target) || (typeof l.target==='object'?l.target.id:l.target),
   })).filter(l => l.source && l.target && typeof l.source==='object' && typeof l.target==='object');
+  updateEdgeStrengthScale();
 
   // Set up canvas
   canvas = document.getElementById('graph-canvas');
@@ -908,13 +1151,15 @@ function draw() {
   if (!ctx || !canvas) return;
   const W = canvasCssWidth || canvas.clientWidth;
   const H = canvasCssHeight || canvas.clientHeight;
+  const now = performance.now();
+  pruneActivity(now);
   ctx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.save();
   ctx.translate(transform.x, transform.y);
   ctx.scale(transform.k, transform.k);
 
-  const t = performance.now() / 1000;
+  const t = now / 1000;
 
   // Draw edges
   for (const l of canvasLinks) {
@@ -930,13 +1175,26 @@ function draw() {
       (selectedNode && l.source !== selectedNode && l.target !== selectedNode) || isSearchDimmed
     );
 
-    const w = Math.max(0.5, (l.effective_weight??0.3)*2.5);
-    let alpha = isDimmed ? 0.05 : (isSelected||isHovered||isSearchMatch) ? 1 : 0.55;
+    const pulse = getEdgePulse(l, now);
+    const w = edgeWidth(l);
+    let alpha = isDimmed ? 0.035 : (isSelected||isHovered||isSearchMatch||pulse) ? 1 : edgeAlpha(l);
+    const stroke = pulse ? pulse.color : (isSelected || isSearchMatch) ? '#22d3ee' : edgeColor(l);
 
     ctx.save();
+    if (pulse) {
+      ctx.globalAlpha = 0.35 * pulse.alpha;
+      ctx.strokeStyle = pulse.color;
+      ctx.lineWidth = w + 7;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+    }
+
     ctx.globalAlpha = alpha;
-    ctx.strokeStyle = (isSelected || isSearchMatch) ? '#22d3ee' : edgeColor(l);
-    ctx.lineWidth = isSelected ? w+1 : isSearchMatch ? w+0.8 : w;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = isSelected ? w+1.3 : isSearchMatch ? w+1 : w;
 
     // Dashed flow for core/bidirectional
     if (l.decay_class==='core' || l.direction==='bidirectional') {
@@ -956,7 +1214,7 @@ function draw() {
     const r = nodeRadius(l.target)+3;
     const ax = tx - r*Math.cos(angle), ay = ty - r*Math.sin(angle);
     ctx.setLineDash([]);
-    ctx.fillStyle = (isSelected || isSearchMatch) ? '#22d3ee' : edgeColor(l);
+    ctx.fillStyle = stroke;
     ctx.beginPath();
     ctx.moveTo(ax, ay);
     ctx.lineTo(ax - 8*Math.cos(angle-0.4), ay - 8*Math.sin(angle-0.4));
@@ -965,6 +1223,8 @@ function draw() {
     ctx.fill();
     ctx.restore();
   }
+
+  drawActivityParticles(now);
 
   // Draw nodes
   for (const n of canvasNodes) {
@@ -977,7 +1237,8 @@ function draw() {
     const isDimmed = !isSelected && !isHovered && (
       (selectedNode && selectedNode !== n && !isNeighbor(selectedNode, n)) || isSearchDimmed
     );
-    const alpha = isDimmed ? 0.14 : 1;
+    const pulse = getNodePulse(n, now);
+    const alpha = isDimmed && !pulse ? 0.14 : 1;
     const dormant = n.status === 'dormant';
 
     ctx.save();
@@ -1005,6 +1266,26 @@ function draw() {
       ctx.arc(n.x, n.y, glowR+4, 0, Math.PI*2);
       ctx.fillStyle = grad;
       ctx.fill();
+    }
+
+    // Live Flux activity pulse
+    if (pulse) {
+      const pulseR = r + 10 + (1 - pulse.alpha) * 14;
+      const grad = ctx.createRadialGradient(n.x, n.y, r, n.x, n.y, pulseR);
+      grad.addColorStop(0, `${pulse.color}66`);
+      grad.addColorStop(1, `${pulse.color}00`);
+      ctx.globalAlpha = Math.max(0.18, pulse.alpha);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, pulseR, 0, Math.PI*2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.globalAlpha = pulse.alpha;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r + 5, 0, Math.PI*2);
+      ctx.strokeStyle = pulse.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
     }
 
     // Selection ring
@@ -1213,6 +1494,7 @@ function showEdgeTooltip(event, d) {
   showTooltip(event.clientX, event.clientY, `${sid.slice(0,10)}… → ${tid.slice(0,10)}…`, [
     ['weight', (d.weight??0).toFixed(4)],
     ['eff. weight', (d.effective_weight??0).toFixed(4)],
+    ['visual strength', Math.round(edgeStrength(d) * 100) + '%'],
     ['direction', d.direction],
     ['decay', d.decay_class??'—'],
     ['use count', d.use_count??0],
@@ -1356,7 +1638,7 @@ function markInspectorReady() {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  fetchAll();
+  fetchAll().then(() => startEventPolling());
   window.addEventListener('resize', () => { if (graphData) renderGraph(); });
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape' && (selectedNode || selectedEdge)) deselectAll();

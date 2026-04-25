@@ -68,6 +68,21 @@ This binds the dashboard to `0.0.0.0`, prints LAN URLs such as
 `http://192.168.x.x:7462`, and serves a device-frame preview at
 `/mobile-preview`. The REST API remains local-only by default.
 
+For private access from outside the local network, use a tailnet/VPN such as
+Tailscale instead of router port forwarding. Keep Flux running locally, sign in
+to Tailscale on this machine and the remote device, then publish only the
+dashboard to your private tailnet:
+
+```bash
+flux start --name my-memory
+tailscale serve --http=7462 http://127.0.0.1:7462
+tailscale serve status
+```
+
+Then open `http://<tailscale-device-name>:7462` from another signed-in
+Tailscale device. This keeps the dashboard private to your tailnet and does not
+expose the REST API or MCP transport to the public internet.
+
 `flux start` does not make the stdio MCP server discoverable by itself. MCP clients launch stdio servers directly. Use the generated snippet or run:
 
 ```bash
