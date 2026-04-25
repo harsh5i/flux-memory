@@ -112,6 +112,11 @@ flux_onboard() -> returns workflow instructions + operating mode
 2. `flux_store(content, provenance)` - save new facts after responding
 3. `flux_feedback(trace_id, grain_id, useful)` - rate each retrieved grain
 
+For clients such as Codex, save the `flux_onboard` instructions into an
+always-loaded instruction surface, such as a project or user `AGENTS.md`.
+Saving the workflow only as a memory note is not enough, because the agent must
+already remember to use Flux before it can retrieve that note.
+
 **Available MCP tools:**
 
 | Tool | Description |

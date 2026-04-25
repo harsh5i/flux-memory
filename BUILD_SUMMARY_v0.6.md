@@ -78,6 +78,10 @@ not as a replacement for CI or a clean-machine pytest run.
 - Stdio MCP servers are not automatically discoverable by Codex, Claude, or
   Cursor. Users must add the generated client config snippet, or the product
   must ship an explicit installer/integration command for each client.
+- Flux onboarding instructions should be persisted into an always-loaded agent
+  instruction surface, such as `AGENTS.md`, not only into memory. Otherwise the
+  agent must remember to use Flux before it can retrieve the instruction that
+  tells it to use Flux.
 - The dashboard and MCP flows need end-to-end CI coverage on Windows before the
   release should be described as production-ready.
 
