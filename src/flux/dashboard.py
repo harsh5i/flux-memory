@@ -615,15 +615,42 @@ function edgeColor(l) {
   return '#1e3f5a';
 }
 
+function nodePassesFilters(n) {
+  const typeOk = (n.node_type === 'grain' && activeFilters.grain) || (n.node_type === 'entry' && activeFilters.entry);
+  const statusOk = (n.status === 'active' || !n.status) ? activeFilters.active : (n.status === 'dormant' ? activeFilters.dormant : true);
+  return typeOk && statusOk;
+}
+
+function nodeMatchesSearch(n) {
+  if (!searchQuery) return true;
+  const haystack = [
+    n.label,
+    n.id,
+    n.feature,
+    n.provenance,
+    n.decay_class,
+    n.status,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return haystack.includes(searchQuery);
+}
+
 function getVisibleNodes() {
   if (!graphData) return [];
-  return graphData.nodes.filter(n => {
-    const typeOk = (n.node_type === 'grain' && activeFilters.grain) || (n.node_type === 'entry' && activeFilters.entry);
-    const statusOk = (n.status === 'active' || !n.status) ? activeFilters.active : (n.status === 'dormant' ? activeFilters.dormant : true);
-    const label = String(n.label || '');
-    const searchOk = !searchQuery || label.toLowerCase().includes(searchQuery) || String(n.id || '').includes(searchQuery);
-    return typeOk && statusOk;
-  });
+  const baseNodes = graphData.nodes.filter(nodePassesFilters);
+  if (!searchQuery) return baseNodes;
+
+  const baseIds = new Set(baseNodes.map(n => n.id));
+  const matchedIds = new Set(baseNodes.filter(nodeMatchesSearch).map(n => n.id));
+  const visibleIds = new Set(matchedIds);
+
+  for (const link of graphData.links || []) {
+    const sid = typeof link.source === 'object' ? link.source.id : link.source;
+    const tid = typeof link.target === 'object' ? link.target.id : link.target;
+    if (matchedIds.has(sid) && baseIds.has(tid)) visibleIds.add(tid);
+    if (matchedIds.has(tid) && baseIds.has(sid)) visibleIds.add(sid);
+  }
+
+  return baseNodes.filter(n => visibleIds.has(n.id));
 }
 
 function getVisibleLinks(nodeIds) {
