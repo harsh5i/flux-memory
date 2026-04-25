@@ -141,7 +141,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
   #weight-slider { width: 80px; accent-color: var(--cyan); cursor: pointer; }
   #weight-val { font-size: 11px; font-family: var(--font-mono); color: var(--cyan); min-width: 28px; }
   #graph-container { flex: 1; position: relative; overflow: hidden; }
-  #graph-canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  #graph-canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
   #graph-canvas.dragging { cursor: grabbing; }
   #graph-overlay {
     position: absolute; bottom: 12px; left: 12px;
@@ -272,11 +272,117 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
   @keyframes spin { to { transform: rotate(360deg); } }
   #loading .load-text { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
 
+  #mobile-bubble-bar,
+  #mobile-sheet-close { display: none; }
+
   /* RESPONSIVE */
   @media (max-width: 768px) {
-    #main { flex-direction: column; }
-    #right-panel { width: 100%; height: 300px; border-top: 1px solid var(--border); }
-    #graph-panel { border-right: none; }
+    html, body { overflow: hidden; }
+    #app { height: 100svh; }
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+      padding: calc(8px + env(safe-area-inset-top, 0px)) 10px 8px;
+      gap: 8px; background: rgba(8,10,14,0.92); backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(37,44,58,0.75);
+    }
+    #topbar .brand svg { width: 20px; height: 20px; }
+    #topbar .brand-name { font-size: 13px; }
+    #topbar .brand-sub, #computed-at, #refresh-interval, .divider { display: none; }
+    #status-badge { padding: 3px 8px; font-size: 10px; }
+    #metrics-strip {
+      order: 3; width: 100%; flex: none;
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px;
+    }
+    .metric-pill { min-width: 0; padding: 4px 7px; border-radius: 8px; }
+    .metric-pill .m-label { font-size: 8px; letter-spacing: 0.35px; }
+    .metric-pill .m-value { font-size: 14px; }
+    .metric-pill:nth-child(n+5) { display: none; }
+    #topbar-controls { margin-left: auto; }
+    .icon-btn { width: 32px; height: 32px; border-radius: 10px; }
+
+    #main { height: 100svh; padding-top: 86px; flex-direction: column; }
+    #graph-panel { border-right: none; min-height: 0; height: 100%; }
+    #graph-toolbar {
+      position: fixed; top: calc(86px + env(safe-area-inset-top, 0px)); left: 8px; right: 8px; z-index: 25;
+      padding: 6px; gap: 6px; flex-wrap: nowrap; overflow-x: auto;
+      border: 1px solid rgba(37,44,58,0.9); border-radius: 14px;
+      background: rgba(15,17,23,0.86); backdrop-filter: blur(14px);
+    }
+    #search-box { min-width: 152px; max-width: none; flex: 1; border-radius: 10px; }
+    .filter-group span, .slider-group label { display: none; }
+    .filter-btn { padding: 6px 9px; border-radius: 10px; white-space: nowrap; }
+    .slider-group { min-width: 112px; }
+    #weight-slider { width: 70px; }
+    #graph-container { height: calc(100svh - 86px); }
+    #graph-canvas { height: 100%; }
+    #graph-overlay { display: none; }
+    #graph-stats {
+      top: auto; right: auto; left: 10px;
+      bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+      border-radius: 10px; background: rgba(8,10,14,0.72);
+    }
+    #tooltip { display: none; }
+
+    #right-panel {
+      position: fixed; left: 10px; right: 10px;
+      bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 45;
+      width: auto; height: min(64svh, 520px); max-height: 64svh;
+      border: 1px solid rgba(37,44,58,0.95); border-radius: 18px;
+      background: rgba(15,17,23,0.96); box-shadow: 0 22px 70px rgba(0,0,0,0.7);
+      transform: translateY(calc(100% + 20px)); transition: transform 180ms ease;
+      overflow-y: auto; backdrop-filter: blur(18px);
+    }
+    body.mobile-sheet-open #right-panel { transform: translateY(0); }
+    #mobile-sheet-close {
+      display: flex; position: sticky; top: 0; z-index: 3;
+      width: 100%; height: 38px; align-items: center; justify-content: center;
+      background: rgba(15,17,23,0.98); border: 0; border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    #mobile-sheet-close::before {
+      content: ''; width: 46px; height: 4px; border-radius: 4px; background: var(--border2);
+    }
+    #mobile-bubble-bar {
+      display: flex; position: fixed; z-index: 40; left: 50%;
+      bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+      gap: 8px; padding: 8px; border-radius: 999px;
+      background: rgba(15,17,23,0.88); border: 1px solid rgba(37,44,58,0.9);
+      box-shadow: 0 16px 45px rgba(0,0,0,0.55); backdrop-filter: blur(18px);
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+    body.mobile-sheet-open #mobile-bubble-bar {
+      opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(12px);
+    }
+    .mobile-bubble {
+      width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+      border-radius: 999px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text-muted);
+    }
+    .mobile-bubble.active {
+      color: var(--cyan); border-color: rgba(34,211,238,0.38);
+      background: var(--cyan-dim); box-shadow: 0 0 22px rgba(34,211,238,0.14);
+    }
+    .mobile-bubble.warn.active {
+      color: var(--amber); border-color: rgba(251,191,36,0.38);
+      background: var(--amber-dim); box-shadow: 0 0 22px rgba(251,191,36,0.12);
+    }
+  }
+
+  @media (max-width: 430px) and (max-height: 260px) {
+    #topbar { padding: 6px 8px; gap: 6px; }
+    #topbar .brand-name { font-size: 11px; }
+    #status-badge { font-size: 9px; padding: 2px 6px; }
+    #metrics-strip {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px;
+    }
+    .metric-pill { padding: 2px 5px; }
+    .metric-pill .m-label { font-size: 7px; }
+    .metric-pill .m-value { font-size: 11px; }
+    .metric-pill:nth-child(n+4), #topbar-controls, #graph-toolbar,
+    #graph-overlay, #right-panel, #mobile-bubble-bar { display: none; }
+    #main { padding-top: 44px; }
+    #graph-container { height: calc(100svh - 44px); }
+    #graph-stats { bottom: 6px; left: 6px; font-size: 8px; padding: 3px 6px; }
   }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -392,6 +498,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
 
     <!-- RIGHT PANEL -->
     <div id="right-panel">
+      <button id="mobile-sheet-close" onclick="closeMobileSheet()" aria-label="Close panel"></button>
 
       <!-- INSPECTOR -->
       <div class="rpanel-section">
@@ -441,6 +548,21 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
       </div>
 
     </div>
+  </div>
+
+  <div id="mobile-bubble-bar" aria-label="Mobile dashboard panels">
+    <button class="mobile-bubble active" id="mobile-bubble-inspector" title="Inspector" onclick="openMobileSheet('inspector')" aria-label="Inspector">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+    </button>
+    <button class="mobile-bubble warn" id="mobile-bubble-warnings" title="Warnings" onclick="openMobileSheet('warnings')" aria-label="Warnings">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+    </button>
+    <button class="mobile-bubble" id="mobile-bubble-health" title="Health" onclick="openMobileSheet('health')" aria-label="Health">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+    </button>
+    <button class="mobile-bubble" title="Refresh" onclick="fetchAll()" aria-label="Refresh">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+    </button>
   </div>
 </div>
 
@@ -712,10 +834,20 @@ function renderGraph() {
   zoom = d3.zoom().scaleExtent([0.1, 5]).on('zoom', e => { transform = e.transform; });
   d3.select(canvas).call(zoom);
 
-  // D3 drag on canvas via pointer events
-  canvas.onmousedown = onCanvasMouseDown;
-  canvas.onmousemove = onCanvasMouseMove;
-  canvas.onmouseup = onCanvasMouseUp;
+  // Pointer events support mouse and touch node dragging while D3 handles pan/zoom.
+  if (window.PointerEvent) {
+    canvas.onpointerdown = onCanvasPointerDown;
+    canvas.onpointermove = onCanvasPointerMove;
+    canvas.onpointerup = onCanvasPointerUp;
+    canvas.onpointercancel = onCanvasPointerUp;
+    canvas.onmousedown = null;
+    canvas.onmousemove = null;
+    canvas.onmouseup = null;
+  } else {
+    canvas.onmousedown = onCanvasPointerDown;
+    canvas.onmousemove = onCanvasPointerMove;
+    canvas.onmouseup = onCanvasPointerUp;
+  }
   canvas.onclick = onCanvasClick;
   canvas.onmouseleave = () => { hideTooltip(); hoveredNode = null; hoveredEdge = null; };
 
@@ -942,27 +1074,30 @@ function hitEdge(mx, my) {
 }
 
 // ── CANVAS MOUSE EVENTS ───────────────────────────────────────────────────────
-let _dragging = null, _dragMoved = false;
+let _dragging = null, _dragMoved = false, _activePointerId = null;
 
-function onCanvasMouseDown(e) {
-  if (e.button !== 0) return;
+function onCanvasPointerDown(e) {
+  if (e.button !== undefined && e.button !== 0) return;
   const [mx, my] = canvasPoint(e);
   const n = hitNode(mx, my);
   if (n) {
-    _dragging = n; _dragMoved = false;
+    _dragging = n; _dragMoved = false; _activePointerId = e.pointerId ?? null;
+    canvas.setPointerCapture?.(e.pointerId);
     if (!simulation._active) simulation.alphaTarget(0.3).restart();
     n.fx = n.x; n.fy = n.y;
-    // Stop zoom from panning while dragging node
     d3.select(canvas).on('.zoom', null);
+    e.preventDefault();
   }
 }
 
-function onCanvasMouseMove(e) {
+function onCanvasPointerMove(e) {
+  if (_activePointerId !== null && e.pointerId !== undefined && e.pointerId !== _activePointerId) return;
   const [mx, my] = canvasPoint(e);
   if (_dragging) {
     _dragMoved = true;
     _dragging.fx = mx; _dragging.fy = my;
     simulation.alphaTarget(0.15).restart();
+    e.preventDefault();
     return;
   }
   const n = hitNode(mx, my);
@@ -978,12 +1113,14 @@ function onCanvasMouseMove(e) {
   }
 }
 
-function onCanvasMouseUp(e) {
+function onCanvasPointerUp(e) {
+  if (_activePointerId !== null && e.pointerId !== undefined && e.pointerId !== _activePointerId) return;
   if (_dragging) {
     _dragging.fx = null; _dragging.fy = null;
     simulation.alphaTarget(0.004);
+    canvas.releasePointerCapture?.(e.pointerId);
     _dragging = null;
-    // Restore zoom
+    _activePointerId = null;
     d3.select(canvas).call(zoom);
   }
 }
@@ -1065,16 +1202,19 @@ function deselectAll() {
   selectedNode = null; selectedEdge = null;
   document.getElementById('inspector-empty').style.display = '';
   document.getElementById('inspector-content').style.display = 'none';
+  document.getElementById('mobile-bubble-inspector')?.classList.remove('active');
 }
 
 function selectNode(d) {
   selectedNode = d; selectedEdge = null;
   renderInspector(d, 'node');
+  markInspectorReady();
 }
 
 function selectEdge(d) {
   selectedEdge = d; selectedNode = null;
   renderInspector(d, 'edge');
+  markInspectorReady();
 }
 
 function tagHtml(v, positive) {
@@ -1157,6 +1297,26 @@ function toggleSection(id) {
   if (chev) chev.classList.toggle('open', !visible);
 }
 
+function openMobileSheet(section) {
+  document.body.classList.add('mobile-sheet-open');
+  for (const id of ['inspector', 'warnings', 'health']) {
+    const body = document.getElementById('body-' + id);
+    const chev = document.getElementById('chev-' + id);
+    const open = id === section;
+    if (body) body.style.display = open ? '' : 'none';
+    if (chev) chev.classList.toggle('open', open);
+    document.getElementById('mobile-bubble-' + id)?.classList.toggle('active', open);
+  }
+}
+
+function closeMobileSheet() {
+  document.body.classList.remove('mobile-sheet-open');
+}
+
+function markInspectorReady() {
+  document.getElementById('mobile-bubble-inspector')?.classList.add('active');
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
   fetchAll();
@@ -1166,6 +1326,148 @@ window.addEventListener('load', () => {
 
 
 </body></html>"""
+
+
+_MOBILE_PREVIEW_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mobile Preview - Flux Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh; padding: 32px 24px 48px; overflow-x: auto;
+    background: #060810; color: #dde3f0; font-family: system-ui, sans-serif;
+  }
+  h1 {
+    margin-bottom: 32px; color: #3a4255; text-align: center;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+  }
+  .devices-row {
+    display: flex; align-items: flex-start; justify-content: center;
+    gap: 40px; flex-wrap: wrap;
+  }
+  .device { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .device-label { font-size: 10px; color: #3a4255; text-transform: uppercase; letter-spacing: 0.6px; }
+  .device-sub { font-size: 10px; color: #22253a; }
+  .iphone-air {
+    width: 280px; background: #1c1c1e; border-radius: 50px;
+    border: 1.5px solid #2c2c2e; position: relative; padding: 14px;
+    box-shadow: 0 0 0 1px #0a0a0c, inset 0 0 0 1px #3a3a3e,
+      0 40px 80px rgba(0,0,0,0.9), 0 0 40px rgba(34,211,238,0.04);
+  }
+  .iphone-air .dynamic-island {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    width: 90px; height: 30px; background: #000; border-radius: 20px; z-index: 10;
+  }
+  .iphone-air .screen {
+    width: 100%; height: 580px; border-radius: 38px; overflow: hidden;
+    background: #080a0e; position: relative;
+  }
+  .iphone-air .screen iframe {
+    width: 390px; height: 844px; border: none; display: block;
+    transform: scale(0.642); transform-origin: top left;
+  }
+  .iphone-air .home-bar, .razr-open .home-bar {
+    height: 4px; border-radius: 2px; background: rgba(255,255,255,0.12); margin: 10px auto 0;
+  }
+  .iphone-air .home-bar { width: 80px; }
+  .iphone-air::before {
+    content: ''; position: absolute; right: -3px; top: 120px;
+    width: 3px; height: 60px; background: #2a2a2c; border-radius: 0 3px 3px 0;
+  }
+  .iphone-air::after {
+    content: ''; position: absolute; left: -3px; top: 100px;
+    width: 3px; height: 100px; background: #2a2a2c; border-radius: 3px 0 0 3px;
+    box-shadow: 0 50px 0 #2a2a2c, 0 -50px 0 #2a2a2c;
+  }
+  .razr-open {
+    width: 258px; background: #18181a; border-radius: 30px;
+    border: 1.5px solid #2c2c2e; position: relative; padding: 12px;
+    box-shadow: 0 0 0 1px #0a0a0c, inset 0 0 0 1px #303032, 0 40px 80px rgba(0,0,0,0.9);
+  }
+  .razr-open .hinge-seam {
+    position: absolute; left: 12px; right: 12px; top: 50%; transform: translateY(-50%);
+    height: 6px; background: #0f0f11; border-top: 1px solid #222224;
+    border-bottom: 1px solid #222224; z-index: 20; pointer-events: none;
+  }
+  .razr-open .punch-hole, .razr-folded .punch-hole {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    background: #000; border-radius: 50%; z-index: 10;
+  }
+  .razr-open .punch-hole { top: 18px; width: 10px; height: 10px; }
+  .razr-open .screen {
+    width: 100%; height: 540px; border-radius: 20px; overflow: hidden; background: #080a0e;
+  }
+  .razr-open .screen iframe {
+    width: 360px; height: 780px; border: none; display: block;
+    transform: scale(0.653); transform-origin: top left;
+  }
+  .razr-open .home-bar { width: 70px; }
+  .razr-folded {
+    width: 200px; background: #18181a; border-radius: 24px 24px 8px 8px;
+    border: 1.5px solid #2c2c2e; position: relative; padding: 10px;
+    box-shadow: 0 0 0 1px #0a0a0c, inset 0 0 0 1px #303032, 0 20px 50px rgba(0,0,0,0.9);
+  }
+  .razr-folded .cover-screen {
+    width: 100%; height: 120px; border-radius: 16px 16px 4px 4px;
+    overflow: hidden; background: #080a0e; position: relative;
+  }
+  .razr-folded .cover-screen iframe {
+    width: 390px; height: 162px; border: none; display: block;
+    transform: scale(0.462); transform-origin: top left;
+  }
+  .razr-folded .hinge {
+    height: 14px; background: linear-gradient(180deg, #111113 0%, #1a1a1c 50%, #111113 100%);
+    border-top: 1px solid #2a2a2c; border-bottom: 1px solid #2a2a2c;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .razr-folded .hinge::after { content: ''; width: 40px; height: 3px; border-radius: 2px; background: #222224; }
+  .razr-folded .body-bottom { height: 14px; background: #18181a; border-radius: 0 0 6px 6px; }
+  .razr-folded .punch-hole { top: 10px; width: 9px; height: 9px; }
+  .note { font-size: 10px; color: #2a3040; text-align: center; line-height: 1.7; max-width: 200px; }
+  .note span { color: #22d3ee; }
+</style>
+</head>
+<body>
+<h1>Flux Memory Dashboard - Mobile Layouts</h1>
+<div class="devices-row">
+  <div class="device">
+    <div class="device-label">iPhone Air</div>
+    <div class="device-sub">390 x 844</div>
+    <div class="iphone-air">
+      <div class="dynamic-island"></div>
+      <div class="screen"><iframe src="/" scrolling="no"></iframe></div>
+      <div class="home-bar"></div>
+    </div>
+    <div class="note">Single finger: drag node<br>Two fingers: pan + pinch zoom<br>Tap node -> <span>inspector bubble glows</span><br>Tap bubble -> sheet slides up</div>
+  </div>
+  <div class="device">
+    <div class="device-label">Motorola Razr+</div>
+    <div class="device-sub">360 x 780 unfolded</div>
+    <div class="razr-open">
+      <div class="punch-hole"></div>
+      <div class="hinge-seam"></div>
+      <div class="screen"><iframe src="/" scrolling="no"></iframe></div>
+      <div class="home-bar"></div>
+    </div>
+    <div class="note">Full screen graph<br>Bubble bar at bottom<br>Hinge seam is cosmetic only</div>
+  </div>
+  <div class="device">
+    <div class="device-label">Motorola Razr+</div>
+    <div class="device-sub">390 x 162 folded outer screen</div>
+    <div class="razr-folded">
+      <div class="punch-hole"></div>
+      <div class="cover-screen"><iframe src="/" scrolling="no"></iframe></div>
+      <div class="hinge"></div>
+      <div class="body-bottom"></div>
+    </div>
+    <div class="note">Ultra-compact mode<br>Status + graph only<br><span>No bubbles, no sheets</span><br>Quick glance view</div>
+  </div>
+</div>
+</body>
+</html>"""
 
 
 def _recent_events(store: Any, limit: int = 25) -> dict[str, list[dict[str, Any]]]:
@@ -1215,6 +1517,8 @@ def run_dashboard(
             path = parsed.path
             if path == "/" or path == "/index.html":
                 self._send(200, "text/html; charset=utf-8", _DASHBOARD_HTML.encode())
+            elif path == "/mobile-preview":
+                self._send(200, "text/html; charset=utf-8", _MOBILE_PREVIEW_HTML.encode())
             elif path == "/api/health":
                 data = flux_health(store, cfg) if cfg else flux_health(store)
                 self._send(200, "application/json", json.dumps(data, default=str).encode())

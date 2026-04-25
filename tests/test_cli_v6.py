@@ -49,6 +49,12 @@ class TestStartHelp:
 
         assert result.exit_code == 0
         assert "Launch REST API and dashboard" in result.output
+        assert "--broadcast" in result.output
+
+    def test_dashboard_probe_host_uses_loopback_for_broadcast_bind(self):
+        assert flux_cli._dashboard_probe_host("0.0.0.0") == "127.0.0.1"
+        assert flux_cli._dashboard_probe_host("::") == "127.0.0.1"
+        assert flux_cli._dashboard_probe_host("localhost") == "localhost"
 
 
 class TestWarmupCommand:

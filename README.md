@@ -58,6 +58,16 @@ Starts:
 - REST API health endpoint at `http://localhost:7465/health`
 - Dashboard at `http://localhost:7462`
 
+To view the dashboard from a phone on the same local network, start with:
+
+```bash
+flux start --name my-memory --broadcast
+```
+
+This binds the dashboard to `0.0.0.0`, prints LAN URLs such as
+`http://192.168.x.x:7462`, and serves a device-frame preview at
+`/mobile-preview`. The REST API remains local-only by default.
+
 `flux start` does not make the stdio MCP server discoverable by itself. MCP clients launch stdio servers directly. Use the generated snippet or run:
 
 ```bash

@@ -30,6 +30,7 @@ package production-ready.
 | Dashboard could fail under Windows console encodings due Unicode status output | Console startup message now uses ASCII |
 | REST root returned 404 | Added `GET /` service metadata endpoint |
 | REST bound to `0.0.0.0` by default | Added host config defaults and bound local services to `127.0.0.1` |
+| Users need a phone-friendly dashboard on the local network | Added `flux start --broadcast`, LAN URL output, responsive mobile graph controls, bottom-sheet panels, and `/mobile-preview` |
 | MCP server was stdio-only but `flux start` implied it was online/discoverable | Added explicit `flux mcp --name <instance>` command and generated client snippets |
 | MCP dependency was not declared | Added `mcp>=1.0` to default dependencies |
 | TOTP QR required optional dependency not installed by default | Added `qrcode>=7.0` to default dependencies |

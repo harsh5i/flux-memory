@@ -38,9 +38,11 @@ PID file lives at:        ~/.flux/<name>/flux.pid
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -104,6 +106,22 @@ def _wait_for_url(url: str, timeout: float = 10.0) -> bool:
             return True
         time.sleep(0.25)
     return False
+
+
+def _dashboard_probe_host(host: str) -> str:
+    return "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+
+
+def _lan_dashboard_urls(port: int) -> list[str]:
+    hosts: set[str] = set()
+    try:
+        hostname = socket.gethostname()
+        for addr in socket.gethostbyname_ex(hostname)[2]:
+            if addr and not addr.startswith("127."):
+                hosts.add(addr)
+    except OSError:
+        pass
+    return [f"http://{host}:{port}" for host in sorted(hosts)]
 
 
 def _mcp_command_parts(name: str) -> tuple[str, list[str]]:
@@ -335,7 +353,14 @@ try:
     @click.option("--name", default=_DEFAULT_NAME, show_default=True)
     @click.option("--foreground", is_flag=True, default=False,
                   help="Run in foreground (blocking). Default: background.")
-    def start(name: str, foreground: bool) -> None:
+    @click.option(
+        "--broadcast",
+        "broadcast_dashboard",
+        is_flag=True,
+        default=False,
+        help="Expose the dashboard on the local network by binding it to 0.0.0.0.",
+    )
+    def start(name: str, foreground: bool, broadcast_dashboard: bool) -> None:
         """Launch REST API and dashboard."""
         idir = _instance_dir(name)
         if not _config_file(name).exists():
@@ -357,6 +382,8 @@ try:
 
         from flux.config import Config
         cfg = Config.from_yaml(cfg_path) if cfg_path.exists() else Config()
+        if broadcast_dashboard:
+            cfg = replace(cfg, DASHBOARD_HOST="0.0.0.0")
 
         click.echo(f"Starting Flux Memory instance '{name}'...")
 
@@ -368,7 +395,7 @@ try:
             log_handle = log_path.open("ab")
             proc = subprocess.Popen(
                 [sys.executable, "-m", "flux.cli", "start",
-                 "--name", name, "--foreground"],
+                 "--name", name, "--foreground"] + (["--broadcast"] if broadcast_dashboard else []),
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
@@ -377,8 +404,9 @@ try:
             pid_path.write_text(str(proc.pid), encoding="utf-8")
 
             rest_url = f"http://{cfg.REST_HOST}:{cfg.REST_PORT}/health"
-            dashboard_url = f"http://{cfg.DASHBOARD_HOST}:{cfg.DASHBOARD_PORT}/"
-            dashboard_api = f"http://{cfg.DASHBOARD_HOST}:{cfg.DASHBOARD_PORT}/api/health"
+            dashboard_probe = _dashboard_probe_host(cfg.DASHBOARD_HOST)
+            dashboard_url = f"http://{dashboard_probe}:{cfg.DASHBOARD_PORT}/"
+            dashboard_api = f"http://{dashboard_probe}:{cfg.DASHBOARD_PORT}/api/health"
 
             rest_ok = _wait_for_url(rest_url)
             dash_ok = _wait_for_url(dashboard_url) and _wait_for_url(dashboard_api)
@@ -400,6 +428,15 @@ try:
 
             click.echo(f"  REST API:  http://localhost:{cfg.REST_PORT}/health")
             click.echo(f"  Dashboard: http://localhost:{cfg.DASHBOARD_PORT}")
+            if broadcast_dashboard:
+                lan_urls = _lan_dashboard_urls(cfg.DASHBOARD_PORT)
+                if lan_urls:
+                    click.echo("  Mobile/LAN dashboard:")
+                    for url in lan_urls:
+                        click.echo(f"       {url}")
+                    click.echo("       Preview: add /mobile-preview")
+                else:
+                    click.echo("  Mobile/LAN dashboard: bound to 0.0.0.0; use this machine's LAN IP.")
             click.echo("  MCP: stdio/client-launched; not started by `flux start`")
             click.echo(f"       Add client config from: {_mcp_client_config_hint(name)}")
             click.echo(f"  Stop with: flux stop --name {name}")
