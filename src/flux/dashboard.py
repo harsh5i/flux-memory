@@ -636,21 +636,7 @@ function nodeMatchesSearch(n) {
 
 function getVisibleNodes() {
   if (!graphData) return [];
-  const baseNodes = graphData.nodes.filter(nodePassesFilters);
-  if (!searchQuery) return baseNodes;
-
-  const baseIds = new Set(baseNodes.map(n => n.id));
-  const matchedIds = new Set(baseNodes.filter(nodeMatchesSearch).map(n => n.id));
-  const visibleIds = new Set(matchedIds);
-
-  for (const link of graphData.links || []) {
-    const sid = typeof link.source === 'object' ? link.source.id : link.source;
-    const tid = typeof link.target === 'object' ? link.target.id : link.target;
-    if (matchedIds.has(sid) && baseIds.has(tid)) visibleIds.add(tid);
-    if (matchedIds.has(tid) && baseIds.has(sid)) visibleIds.add(sid);
-  }
-
-  return baseNodes.filter(n => visibleIds.has(n.id));
+  return graphData.nodes.filter(nodePassesFilters);
 }
 
 function getVisibleLinks(nodeIds) {
@@ -671,6 +657,21 @@ let transform = d3.zoomIdentity;
 let hoveredNode = null, hoveredEdge = null;
 let dashOffset = 0;
 let nudgeTimer = null;
+let searchMatchIds = new Set();
+
+function updateSearchFocus() {
+  searchMatchIds = new Set();
+  for (const node of canvasNodes) {
+    node._searchMatch = Boolean(searchQuery && nodeMatchesSearch(node));
+    if (node._searchMatch) searchMatchIds.add(node.id);
+  }
+}
+
+function edgeMatchesSearch(edge) {
+  return Boolean(searchQuery && (
+    searchMatchIds.has(edge.source?.id) || searchMatchIds.has(edge.target?.id)
+  ));
+}
 
 function renderGraph() {
   const container = document.getElementById('graph-container');
@@ -691,6 +692,7 @@ function renderGraph() {
   canvasNodes = visNodes.map(n => ({...n}));
   const nodeMap = new Map(canvasNodes.map(n => [n.id, n]));
   assignPhases(canvasNodes);
+  updateSearchFocus();
   canvasLinks = visLinks.map(l => ({
     ...l,
     source: nodeMap.get(typeof l.source==='object'?l.source.id:l.source) || (typeof l.source==='object'?l.source.id:l.source),
@@ -768,15 +770,19 @@ function draw() {
 
     const isSelected = selectedEdge === l;
     const isHovered = hoveredEdge === l;
-    const isDimmed = (selectedNode && l.source !== selectedNode && l.target !== selectedNode);
+    const isSearchMatch = edgeMatchesSearch(l);
+    const isSearchDimmed = searchQuery && !isSearchMatch;
+    const isDimmed = !isSelected && !isHovered && (
+      (selectedNode && l.source !== selectedNode && l.target !== selectedNode) || isSearchDimmed
+    );
 
     const w = Math.max(0.5, (l.effective_weight??0.3)*2.5);
-    let alpha = isDimmed ? 0.04 : (isSelected||isHovered) ? 1 : 0.55;
+    let alpha = isDimmed ? 0.05 : (isSelected||isHovered||isSearchMatch) ? 1 : 0.55;
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.strokeStyle = isSelected ? '#22d3ee' : edgeColor(l);
-    ctx.lineWidth = isSelected ? w+1 : w;
+    ctx.strokeStyle = (isSelected || isSearchMatch) ? '#22d3ee' : edgeColor(l);
+    ctx.lineWidth = isSelected ? w+1 : isSearchMatch ? w+0.8 : w;
 
     // Dashed flow for core/bidirectional
     if (l.decay_class==='core' || l.direction==='bidirectional') {
@@ -796,7 +802,7 @@ function draw() {
     const r = nodeRadius(l.target)+3;
     const ax = tx - r*Math.cos(angle), ay = ty - r*Math.sin(angle);
     ctx.setLineDash([]);
-    ctx.fillStyle = isSelected ? '#22d3ee' : edgeColor(l);
+    ctx.fillStyle = (isSelected || isSearchMatch) ? '#22d3ee' : edgeColor(l);
     ctx.beginPath();
     ctx.moveTo(ax, ay);
     ctx.lineTo(ax - 8*Math.cos(angle-0.4), ay - 8*Math.sin(angle-0.4));
@@ -812,12 +818,28 @@ function draw() {
     const r = nodeRadius(n);
     const isSelected = selectedNode === n;
     const isHovered = hoveredNode === n;
-    const isDimmed = (selectedNode && selectedNode !== n && !isNeighbor(selectedNode, n));
-    const alpha = isDimmed ? 0.1 : 1;
+    const isSearchMatch = Boolean(searchQuery && n._searchMatch);
+    const isSearchDimmed = searchQuery && !isSearchMatch;
+    const isDimmed = !isSelected && !isHovered && (
+      (selectedNode && selectedNode !== n && !isNeighbor(selectedNode, n)) || isSearchDimmed
+    );
+    const alpha = isDimmed ? 0.14 : 1;
     const dormant = n.status === 'dormant';
 
     ctx.save();
     ctx.globalAlpha = alpha;
+
+    // Search focus ring
+    if (isSearchMatch) {
+      const glowR = r + 12 + Math.sin(t * 3 + n._phase) * 2;
+      const grad = ctx.createRadialGradient(n.x, n.y, r, n.x, n.y, glowR);
+      grad.addColorStop(0, 'rgba(251,191,36,0.34)');
+      grad.addColorStop(1, 'rgba(251,191,36,0)');
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, glowR, 0, Math.PI*2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
 
     // Glow for core grains
     if (n.decay_class === 'core' && !dormant) {
@@ -832,11 +854,11 @@ function draw() {
     }
 
     // Selection ring
-    if (isSelected || isHovered) {
+    if (isSelected || isHovered || isSearchMatch) {
       ctx.beginPath();
-      ctx.arc(n.x, n.y, r + 4, 0, Math.PI*2);
-      ctx.strokeStyle = isSelected ? '#22d3ee' : 'rgba(34,211,238,0.4)';
-      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.arc(n.x, n.y, r + (isSearchMatch ? 6 : 4), 0, Math.PI*2);
+      ctx.strokeStyle = isSelected ? '#22d3ee' : isSearchMatch ? '#fbbf24' : 'rgba(34,211,238,0.4)';
+      ctx.lineWidth = isSelected || isSearchMatch ? 2 : 1;
       ctx.stroke();
     }
 
@@ -851,7 +873,7 @@ function draw() {
     ctx.beginPath();
     ctx.arc(n.x, n.y, br, 0, Math.PI*2);
     ctx.fillStyle = nodeColor(n);
-    ctx.globalAlpha = alpha * (dormant ? 0.35 : 0.9);
+    ctx.globalAlpha = isSearchMatch ? 1 : alpha * (dormant ? 0.35 : 0.9);
     ctx.fill();
 
     // Core stroke ring
@@ -866,8 +888,8 @@ function draw() {
 
     // Label
     const label = n.node_type==='entry' ? n.label : n.label.slice(0,22)+(n.label.length>22?'…':'');
-    ctx.fillStyle = isSelected ? '#dde3f0' : '#5a6480';
-    ctx.font = '9px JetBrains Mono, monospace';
+    ctx.fillStyle = isSearchMatch ? '#fbbf24' : isSelected ? '#dde3f0' : '#5a6480';
+    ctx.font = `${isSearchMatch ? '600 ' : ''}9px JetBrains Mono, monospace`;
     ctx.fillText(label, n.x + br + 4, n.y + 3.5);
 
     ctx.restore();
@@ -1117,7 +1139,8 @@ function toggleFilter(key) {
 }
 function onSearch(val) {
   searchQuery = val.toLowerCase().trim();
-  renderGraph();
+  updateSearchFocus();
+  draw();
 }
 function onWeightChange(val) {
   weightThreshold = parseFloat(val);
