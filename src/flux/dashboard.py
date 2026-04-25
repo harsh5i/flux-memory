@@ -186,6 +186,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
     padding: 10px 14px; cursor: pointer; user-select: none;
   }
   .rpanel-header-left { display: flex; align-items: center; gap: 6px; }
+  .rpanel-actions { display: flex; align-items: center; gap: 6px; }
   .rpanel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); }
   .rpanel-count {
     font-size: 10px; background: var(--surface2); border: 1px solid var(--border);
@@ -195,6 +196,12 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
   .rpanel-body { padding: 0 14px 12px; }
   .rpanel-chevron { color: var(--text-dim); transition: transform 0.2s; }
   .rpanel-chevron.open { transform: rotate(180deg); }
+  .inspector-clear {
+    width: 22px; height: 22px; opacity: 1;
+  }
+  .inspector-clear:disabled {
+    opacity: 0.28; cursor: default; pointer-events: none;
+  }
 
   /* INSPECTOR */
   #inspector-empty {
@@ -507,7 +514,12 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65" stroke-opacity="0.7"></line></svg>
             <span class="rpanel-title">Inspector</span>
           </div>
-          <svg class="rpanel-chevron open" id="chev-inspector" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+          <div class="rpanel-actions">
+            <button class="icon-btn inspector-clear" id="clear-selection-btn" title="Deselect" aria-label="Deselect" disabled onclick="event.stopPropagation(); deselectAll();">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <svg class="rpanel-chevron open" id="chev-inspector" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+          </div>
         </div>
         <div class="rpanel-body" id="body-inspector">
           <div id="inspector-empty">
@@ -1213,18 +1225,27 @@ function deselectAll() {
   document.getElementById('inspector-empty').style.display = '';
   document.getElementById('inspector-content').style.display = 'none';
   document.getElementById('mobile-bubble-inspector')?.classList.remove('active');
+  updateSelectionControls();
+  draw();
 }
 
 function selectNode(d) {
   selectedNode = d; selectedEdge = null;
   renderInspector(d, 'node');
+  updateSelectionControls();
   markInspectorReady();
 }
 
 function selectEdge(d) {
   selectedEdge = d; selectedNode = null;
   renderInspector(d, 'edge');
+  updateSelectionControls();
   markInspectorReady();
+}
+
+function updateSelectionControls() {
+  const clearBtn = document.getElementById('clear-selection-btn');
+  if (clearBtn) clearBtn.disabled = !(selectedNode || selectedEdge);
 }
 
 function tagHtml(v, positive) {
@@ -1331,6 +1352,9 @@ function markInspectorReady() {
 window.addEventListener('load', () => {
   fetchAll();
   window.addEventListener('resize', () => { if (graphData) renderGraph(); });
+  window.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && (selectedNode || selectedEdge)) deselectAll();
+  });
 });
 </script>
 
