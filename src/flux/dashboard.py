@@ -316,6 +316,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
       background: rgba(15,17,23,0.86); backdrop-filter: blur(14px);
     }
     #search-box { min-width: 152px; max-width: none; flex: 1; border-radius: 10px; }
+    #search-box input { font-size: 16px; line-height: 20px; }
     .filter-group span, .slider-group label { display: none; }
     .filter-btn { padding: 6px 9px; border-radius: 10px; white-space: nowrap; }
     .slider-group { min-width: 112px; }
@@ -460,7 +461,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
       <div id="graph-toolbar">
         <div id="search-box">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5a6480" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65" stroke-opacity="0.7"></line></svg>
-          <input type="text" id="search-input" placeholder="Search nodes…" oninput="onSearch(this.value)">
+          <input type="text" id="search-input" placeholder="Search nodes…" oninput="onSearch(this.value)" onkeydown="onSearchKey(event)">
         </div>
         <div class="filter-group">
           <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px">Type</span>
@@ -1312,6 +1313,11 @@ function onSearch(val) {
   searchQuery = val.toLowerCase().trim();
   updateSearchFocus();
   draw();
+}
+function onSearchKey(event) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  event.currentTarget.blur();
 }
 function onWeightChange(val) {
   weightThreshold = parseFloat(val);
