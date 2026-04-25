@@ -780,6 +780,7 @@ let hoveredNode = null, hoveredEdge = null;
 let dashOffset = 0;
 let nudgeTimer = null;
 let searchMatchIds = new Set();
+let canvasCssWidth = 0, canvasCssHeight = 0, canvasDpr = 1;
 
 function updateSearchFocus() {
   searchMatchIds = new Set();
@@ -823,7 +824,13 @@ function renderGraph() {
 
   // Set up canvas
   canvas = document.getElementById('graph-canvas');
-  canvas.width = W; canvas.height = H;
+  canvasCssWidth = W;
+  canvasCssHeight = H;
+  canvasDpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+  canvas.width = Math.max(1, Math.floor(W * canvasDpr));
+  canvas.height = Math.max(1, Math.floor(H * canvasDpr));
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
   ctx = canvas.getContext('2d');
 
   // Cancel previous rAF
@@ -886,7 +893,9 @@ function renderGraph() {
 // ── CANVAS DRAW ───────────────────────────────────────────────────────────────
 function draw() {
   if (!ctx || !canvas) return;
-  const W = canvas.width, H = canvas.height;
+  const W = canvasCssWidth || canvas.clientWidth;
+  const H = canvasCssHeight || canvas.clientHeight;
+  ctx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.save();
   ctx.translate(transform.x, transform.y);
@@ -1021,7 +1030,8 @@ function draw() {
     // Label
     const label = n.node_type==='entry' ? n.label : n.label.slice(0,22)+(n.label.length>22?'…':'');
     ctx.fillStyle = isSearchMatch ? '#fbbf24' : isSelected ? '#dde3f0' : '#5a6480';
-    ctx.font = `${isSearchMatch ? '600 ' : ''}9px JetBrains Mono, monospace`;
+    ctx.font = `${isSearchMatch ? '600 ' : ''}${window.innerWidth <= 768 ? 10 : 9}px JetBrains Mono, monospace`;
+    ctx.textBaseline = 'middle';
     ctx.fillText(label, n.x + br + 4, n.y + 3.5);
 
     ctx.restore();
