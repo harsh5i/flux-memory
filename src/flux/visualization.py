@@ -173,6 +173,7 @@ def _load_graph(store: FluxStore, now: datetime) -> tuple[list[dict], list[dict]
         direction = c.direction or "forward"
         edge_type = "shortcut" if direction == "bidirectional" and c.use_count > 0 else "earned"
         edges.append({
+            "id": c.id,
             "source": c.from_id,
             "target": c.to_id,
             "weight": c.weight,

@@ -83,6 +83,12 @@ Then open `http://<tailscale-device-name>:7462` from another signed-in
 Tailscale device. This keeps the dashboard private to your tailnet and does not
 expose the REST API or MCP transport to the public internet.
 
+If you do not want an overlay app, the private alternative is your own VPN
+endpoint, usually on your router/firewall. Connect to that VPN from the office
+using an OS-supported VPN profile, then open the dashboard over the home LAN
+address printed by `flux start --name my-memory --broadcast`. Do not forward
+port `7462` directly from the router to the internet.
+
 `flux start` does not make the stdio MCP server discoverable by itself. MCP clients launch stdio servers directly. Use the generated snippet or run:
 
 ```bash

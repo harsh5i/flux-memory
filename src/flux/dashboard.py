@@ -149,9 +149,6 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
   }
   .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-muted); }
   .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .legend-line { width: 22px; border-radius: 999px; background: var(--cyan); flex-shrink: 0; }
-  .legend-line.weak { height: 1px; opacity: 0.35; }
-  .legend-line.strong { height: 4px; box-shadow: 0 0 10px rgba(34,211,238,0.35); }
   #activity-indicator {
     position: absolute; top: 10px; left: 10px;
     display: flex; align-items: center; gap: 7px;
@@ -167,6 +164,11 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
   }
   #activity-indicator.live .activity-dot {
     background: var(--cyan); box-shadow: 0 0 14px rgba(34,211,238,0.7);
+    animation: activityPulse 900ms ease-out infinite;
+  }
+  @keyframes activityPulse {
+    0% { box-shadow: 0 0 0 0 rgba(34,211,238,0.6); }
+    100% { box-shadow: 0 0 0 8px rgba(34,211,238,0); }
   }
   #tooltip {
     position: fixed; pointer-events: none; z-index: 999;
@@ -520,8 +522,6 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
           <div class="legend-item"><div class="legend-dot" style="background:#e0f2fe"></div>Grain (core)</div>
           <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>Entry</div>
           <div class="legend-item"><div class="legend-dot" style="background:#334155"></div>Dormant</div>
-          <div class="legend-item"><div class="legend-line weak"></div>Weak conduit</div>
-          <div class="legend-item"><div class="legend-line strong"></div>Strong conduit</div>
         </div>
         <div id="no-data-msg" style="display: none;">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12" stroke-opacity="0.7"></line><line x1="12" y1="16" x2="12.01" y2="16" stroke-opacity="0.7"></line></svg>
@@ -770,25 +770,17 @@ function nodeRadius(n) {
   return 8;
 }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
-function edgeWeight(l) {
-  const v = Number(l.effective_weight ?? l.weight ?? 0);
-  return Number.isFinite(v) ? Math.max(0, v) : 0;
-}
-function edgeStrength(l) {
-  return clamp01(l._strength ?? Math.sqrt(Math.min(1, edgeWeight(l))));
-}
 function edgeColor(l) {
-  const s = edgeStrength(l);
-  if (l.direction === 'bidirectional') return d3.interpolateRgb('#2b2544', '#a78bfa')(s);
-  if (l.decay_class === 'core') return d3.interpolateRgb('#1d3a52', '#7dd3fc')(s);
-  if (l.decay_class === 'ephemeral') return d3.interpolateRgb('#17202b', '#0e7490')(s);
-  return d3.interpolateRgb('#1b2634', '#22d3ee')(s);
+  if (l.direction === 'bidirectional') return '#a78bfa';
+  if (l.decay_class === 'core') return '#38bdf8';
+  if (l.decay_class === 'ephemeral') return '#1e3a4a';
+  return '#1e3f5a';
 }
 function edgeWidth(l) {
-  return 0.45 + Math.pow(edgeStrength(l), 1.35) * 4.2;
+  return Math.max(0.5, (l.effective_weight??0.3)*2.5);
 }
 function edgeAlpha(l) {
-  return 0.16 + edgeStrength(l) * 0.64;
+  return 0.55;
 }
 
 function nodePassesFilters(n) {
@@ -842,17 +834,6 @@ let seenEventKeys = new Set();
 let eventPollTimer = null;
 let lastActivityAt = 0;
 let activityEventEdgeKeys = null;
-
-function updateEdgeStrengthScale() {
-  if (!canvasLinks.length) return;
-  const ranked = [...canvasLinks].sort((a, b) => edgeWeight(a) - edgeWeight(b));
-  const denom = Math.max(1, ranked.length - 1);
-  ranked.forEach((edge, index) => {
-    const absolute = Math.sqrt(Math.min(1, edgeWeight(edge)));
-    const rank = index / denom;
-    edge._strength = clamp01((rank * 0.7) + (absolute * 0.3));
-  });
-}
 
 function activityColor(ev) {
   if (ev.category === 'retrieval') return '#22d3ee';
@@ -925,10 +906,15 @@ function activateEdge(edge, color, now) {
   }
 }
 
-function activateNode(node, color, now) {
+function pulseNodeOnly(node, color, now) {
   if (!node) return 0;
   activityNodePulses.set(node.id, { until: now + 3200, duration: 3200, color });
-  let count = 1;
+  return 1;
+}
+
+function activateNode(node, color, now) {
+  let count = pulseNodeOnly(node, color, now);
+  if (!count) return 0;
   for (const edge of canvasLinks) {
     if (edge.source === node || edge.target === node) {
       activateEdge(edge, color, now);
@@ -945,6 +931,13 @@ function activateNodeById(id, color, now) {
   return activateNode(node, color, now);
 }
 
+function pulseNodeById(id, color, now) {
+  if (!id) return 0;
+  const needle = String(id);
+  const node = canvasNodes.find(n => n.id === needle || n.feature === needle || n.label === needle);
+  return pulseNodeOnly(node, color, now);
+}
+
 function activateFeature(feature, color, now) {
   if (!feature) return 0;
   const needle = String(feature).toLowerCase();
@@ -956,29 +949,108 @@ function activateFeature(feature, color, now) {
   return count;
 }
 
-function handleFluxEvent(ev) {
-  const now = performance.now();
-  const color = activityColor(ev);
+function pulseFeatureNodes(feature, color, now) {
+  if (!feature) return 0;
+  const needle = String(feature).toLowerCase();
+  let count = 0;
+  for (const node of canvasNodes) {
+    const haystack = [node.feature, node.label, node.id, node.provenance].filter(Boolean).join(' ').toLowerCase();
+    if (haystack.includes(needle)) count += pulseNodeOnly(node, color, now);
+  }
+  return count;
+}
+
+function activateEventTargets(ev, color, now) {
   const data = ev.data || {};
   let activated = 0;
   activityEventEdgeKeys = new Set();
-
   try {
     activated += activateNodeById(data.grain_id, color, now);
     if (Array.isArray(data.features)) {
       for (const feature of data.features.slice(0, 12)) activated += activateFeature(feature, color, now);
     }
     activated += activateFeature(data.feature, color, now);
+  } finally {
+    activityEventEdgeKeys = null;
+  }
+  return activated;
+}
 
-    if (ev.category === 'write' || ev.event === 'grain_stored' || ev.event === 'entry_point_created') {
-      setTimeout(() => fetchAll().catch(err => console.warn('Graph refresh after event failed', err)), 250);
-    }
+function findTraceEdge(step) {
+  return canvasLinks.find(edge => {
+    const sid = edge.source?.id;
+    const tid = edge.target?.id;
+    if (edge.id && step.conduit_id && edge.id === step.conduit_id) return true;
+    if (sid === step.from_id && tid === step.to_id) return true;
+    return edge.direction === 'bidirectional' && sid === step.to_id && tid === step.from_id;
+  });
+}
 
+async function animateTrace(traceId, color) {
+  if (!traceId) return 0;
+  const payload = await fetchJSON(`/api/trace?trace_id=${encodeURIComponent(traceId)}`);
+  const steps = (payload.steps || [])
+    .filter(step => step.from_id && step.to_id)
+    .sort((a, b) => (a.hop ?? 0) - (b.hop ?? 0) || Math.abs(b.signal ?? 0) - Math.abs(a.signal ?? 0))
+    .slice(0, 300);
+
+  const seenEdges = new Set();
+  steps.forEach((step, index) => {
+    const delay = Math.min(step.hop ?? 0, 6) * 320 + Math.min(index, 90) * 10;
+    setTimeout(() => {
+      const edge = findTraceEdge(step);
+      const now = performance.now();
+      pulseNodeById(step.from_id, color, now);
+      pulseNodeById(step.to_id, color, now);
+      if (edge) {
+        const key = edgeKey(edge);
+        if (!seenEdges.has(key)) {
+          seenEdges.add(key);
+          activateEdge(edge, color, now);
+        }
+      }
+      draw();
+    }, delay);
+  });
+  return steps.length;
+}
+
+function handleFluxEvent(ev) {
+  const now = performance.now();
+  const color = activityColor(ev);
+  const data = ev.data || {};
+  let activated = 0;
+  const traceId = data.trace_id || ev.trace_id;
+
+  if (ev.category === 'retrieval' && ev.event === 'grains_returned' && traceId) {
+    setActivityLabel(`trace/${String(traceId).slice(0, 8)}`, color);
+    animateTrace(traceId, color).then(count => {
+      if (!count) {
+        const fallbackNow = performance.now();
+        const fallback = activateEventTargets(ev, color, fallbackNow);
+        if (fallback) draw();
+      }
+    }).catch(err => {
+      console.warn('Trace animation failed', err);
+      const fallbackNow = performance.now();
+      const fallback = activateEventTargets(ev, color, fallbackNow);
+      if (fallback) draw();
+    });
+  } else if (ev.category === 'retrieval' && ev.event === 'features_extracted') {
+    setActivityLabel('retrieval/features', color);
+  } else if (ev.event === 'entry_point_created') {
+    activated = pulseFeatureNodes(data.feature, color, now);
+    setActivityLabel('write/entry_point', color);
+    if (activated) draw();
+  } else {
+    activated = activateEventTargets(ev, color, now);
     const label = ev.category && ev.event ? `${ev.category}/${ev.event}` : 'flux activity';
     setActivityLabel(label, color);
     if (activated || ev.category !== 'system') draw();
-  } finally {
-    activityEventEdgeKeys = null;
+  }
+
+  if (ev.category === 'write' || ev.event === 'grain_stored' || ev.event === 'entry_point_created') {
+    setTimeout(() => fetchAll().catch(err => console.warn('Graph refresh after event failed', err)), 250);
   }
 }
 
@@ -1076,7 +1148,6 @@ function renderGraph() {
     source: nodeMap.get(typeof l.source==='object'?l.source.id:l.source) || (typeof l.source==='object'?l.source.id:l.source),
     target: nodeMap.get(typeof l.target==='object'?l.target.id:l.target) || (typeof l.target==='object'?l.target.id:l.target),
   })).filter(l => l.source && l.target && typeof l.source==='object' && typeof l.target==='object');
-  updateEdgeStrengthScale();
 
   // Set up canvas
   canvas = document.getElementById('graph-canvas');
@@ -1494,7 +1565,6 @@ function showEdgeTooltip(event, d) {
   showTooltip(event.clientX, event.clientY, `${sid.slice(0,10)}… → ${tid.slice(0,10)}…`, [
     ['weight', (d.weight??0).toFixed(4)],
     ['eff. weight', (d.effective_weight??0).toFixed(4)],
-    ['visual strength', Math.round(edgeStrength(d) * 100) + '%'],
     ['direction', d.direction],
     ['decay', d.decay_class??'—'],
     ['use count', d.use_count??0],
@@ -1820,6 +1890,25 @@ def _recent_events(store: Any, limit: int = 25) -> dict[str, list[dict[str, Any]
     return {"events": events}
 
 
+def _trace_details(store: Any, trace_id: str) -> dict[str, Any]:
+    if not trace_id:
+        return {"trace_id": "", "steps": []}
+    trace = store.get_trace(trace_id)
+    if trace is None:
+        return {"trace_id": trace_id, "steps": []}
+    try:
+        steps = json.loads(trace.trace_data or "[]")
+    except json.JSONDecodeError:
+        steps = []
+    return {
+        "trace_id": trace.id,
+        "query": trace.query_text,
+        "hop_count": trace.hop_count,
+        "activated_grain_count": trace.activated_grain_count,
+        "steps": steps if isinstance(steps, list) else [],
+    }
+
+
 def run_dashboard(
     store: Any,
     host: str = "127.0.0.1",
@@ -1849,6 +1938,11 @@ def run_dashboard(
                 self._send(200, "application/json", json.dumps(data, default=str).encode())
             elif path == "/api/clusters":
                 data = cluster_view(store)
+                self._send(200, "application/json", json.dumps(data, default=str).encode())
+            elif path == "/api/trace":
+                query = parse_qs(parsed.query)
+                trace_id = query.get("trace_id", [""])[0]
+                data = _trace_details(store, trace_id=trace_id)
                 self._send(200, "application/json", json.dumps(data, default=str).encode())
             elif path == "/api/events":
                 query = parse_qs(parsed.query)
