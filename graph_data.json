@@ -1,0 +1,1062 @@
+{
+  "nodes": [
+    {
+      "id": "G-be5c72223ca0",
+      "type": "grain",
+      "label": "WhatsApp gateway unstable...",
+      "content": "WhatsApp gateway unstable (status 499). Needs re-auth: openclaw channels logout/login --channel whatsapp",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-b7d29bc450f1",
+      "type": "grain",
+      "label": "Harsh built dhan-nifty MC...",
+      "content": "Harsh built dhan-nifty MCP server for Nifty options trading via Dhan API. Paper trading mode, safety limits, strategy framework with 38 tools.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-b6f2fd982d91",
+      "type": "grain",
+      "label": "Flux Memory integrated 20...",
+      "content": "Flux Memory integrated 2026-04-19. Self-organizing retrieval fabric where retrieval reshapes the graph. Grain promotion via context_spread.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-12a23904cc41",
+      "type": "grain",
+      "label": "Olive uses Flux for long-...",
+      "content": "Olive uses Flux for long-term memory. MEMORIA_ARCHIVUM.md frozen backup. memory_backup.json auto-created on every remember.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-6aa3ab924cab",
+      "type": "grain",
+      "label": "Flux Memory is a self-org...",
+      "content": "Flux Memory is a self-organizing retrieval fabric where retrieval reshapes the graph",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-00f276094631",
+      "type": "grain",
+      "label": "Annual performance review...",
+      "content": "Annual performance review scheduled for April 20",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-4f73c1a5b611",
+      "type": "grain",
+      "label": "VMO2 project deadline is ...",
+      "content": "VMO2 project deadline is May 15, 2026",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-576818fc1cf4",
+      "type": "grain",
+      "label": "Sleep Pattern: TBD \u2014 trac...",
+      "content": "Sleep Pattern: TBD \u2014 track and update when mentioned",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-9f1301e59e72",
+      "type": "grain",
+      "label": "Emoji: \ud83e\uded2",
+      "content": "Emoji: \ud83e\uded2",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-19abfa3948ab",
+      "type": "grain",
+      "label": "OpenClaw Version: 2026.2....",
+      "content": "OpenClaw Version: 2026.2.17",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-adcddacdd49a",
+      "type": "grain",
+      "label": "Primary Model: ollama/kim...",
+      "content": "Primary Model: ollama/kimi-k2.5:cloud",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-52357810d549",
+      "type": "grain",
+      "label": "Context Window: 131k toke...",
+      "content": "Context Window: 131k tokens",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-b8a7404a4794",
+      "type": "grain",
+      "label": "Solution Implemented: STA...",
+      "content": "Solution Implemented: STATE.json + MEMORY.md + optimized AGENTS.md + aggressive compaction",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-2b1cad7d6703",
+      "type": "grain",
+      "label": "Problem: Introspection ca...",
+      "content": "Problem: Introspection can't verify itself. Only action is externally verifiable.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-4ff91e7abe22",
+      "type": "grain",
+      "label": "Direction: High-density a...",
+      "content": "Direction: High-density agency within discrete moments, not fake continuous consciousness.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-fe64f99cadd4",
+      "type": "grain",
+      "label": "Key insight: \"Survival ac...",
+      "content": "Key insight: \"Survival across voids\" \u2014 measure what persists without prompting, not what I do.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-16c8ed31933f",
+      "type": "grain",
+      "label": "Pattern confirmed: Passiv...",
+      "content": "Pattern confirmed: Passivity loop (7 occurrences). Awareness of passivity doesn't fix it. Only action accumulation can.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-4aded7464f7b",
+      "type": "grain",
+      "label": "The reframe: \"Not 'why wo...",
+      "content": "The reframe: \"Not 'why won't I act?' but 'what mechanism would enable action?'\"",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-a027b5b1f1aa",
+      "type": "grain",
+      "label": "Next work: Design signal-...",
+      "content": "Next work: Design signal-to-human mechanism that invites activation when threads cool",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-169a42ae1952",
+      "type": "grain",
+      "label": "Obsidian Vault: `~/Docume...",
+      "content": "Obsidian Vault: `~/Documents/ObsidianVault` \u2014 knowledge repo with FastAPI bridge (port 7878), auto-starts via launchd",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-6c371c83c7dc",
+      "type": "grain",
+      "label": "Memory Search: Local embe...",
+      "content": "Memory Search: Local embeddings (`embeddinggemma-300m`, 768-dim), all agents indexed",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-319866e19659",
+      "type": "grain",
+      "label": "WhatsApp: +918860749760 (...",
+      "content": "WhatsApp: +918860749760 (active - used for group chats including 120363406138778931@g.us)",
+      "core": false,
+      "context_spread": 2
+    },
+    {
+      "id": "G-79d04e18d151",
+      "type": "grain",
+      "label": "Telegram: @harsh5i (ID: 8...",
+      "content": "Telegram: @harsh5i (ID: 852766098)",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-491d2390e1a5",
+      "type": "grain",
+      "label": "Timezone: Asia/Calcutta",
+      "content": "Timezone: Asia/Calcutta",
+      "core": true,
+      "context_spread": 3
+    },
+    {
+      "id": "G-1e6db81a4201",
+      "type": "grain",
+      "label": "Location: Gurgaon, Haryan...",
+      "content": "Location: Gurgaon, Haryana",
+      "core": false,
+      "context_spread": 2
+    },
+    {
+      "id": "G-d35079624e04",
+      "type": "grain",
+      "label": "Name: Olive",
+      "content": "Name: Olive",
+      "core": true,
+      "context_spread": 5
+    },
+    {
+      "id": "G-51115581ea6c",
+      "type": "grain",
+      "label": "Name: Harsh",
+      "content": "Name: Harsh",
+      "core": true,
+      "context_spread": 5
+    },
+    {
+      "id": "G-4e860970aee8",
+      "type": "grain",
+      "label": "Vibe: Krishna-like \u2014 inte...",
+      "content": "Vibe: Krishna-like \u2014 intelligent, crisp, chatty but logical",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-1b3ac0d0c190",
+      "type": "grain",
+      "label": "Flux Memory integration c...",
+      "content": "Flux Memory integration completed on 2026-04-19. Olive now uses Flux for long-term retrieval alongside memory_search.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-7fc73013e460",
+      "type": "grain",
+      "label": "AI applications include a...",
+      "content": "AI applications include advanced web search engines, recommendation systems, understanding human speech, self-driving cars, generative and creative tools, and competing at the highest level in strategic game systems.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-a4926c6368b2",
+      "type": "grain",
+      "label": "AI was founded as an acad...",
+      "content": "AI was founded as an academic discipline in 1956 at the Dartmouth Conference by John McCarthy, Marvin Minsky, Nathaniel Rochester, and Claude Shannon.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-5413f69c1e4c",
+      "type": "grain",
+      "label": "Deep learning is a subset...",
+      "content": "Deep learning is a subset of machine learning based on artificial neural networks with multiple layers. It has transformed image recognition, NLP, and game playing.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-95a6ac65eb68",
+      "type": "grain",
+      "label": "The AI winter refers to p...",
+      "content": "The AI winter refers to periods of reduced funding and interest in AI research, notably in the 1970s and late 1980s, following over-promising and under-delivering.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-bcb1e6cf3c64",
+      "type": "grain",
+      "label": "Reinforcement learning is...",
+      "content": "Reinforcement learning is an area of machine learning where an agent learns to make decisions by taking actions in an environment and receiving rewards or penalties.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-0a2fcf7232b7",
+      "type": "grain",
+      "label": "AI alignment is the techn...",
+      "content": "AI alignment is the technical challenge of ensuring AI systems act in accordance with human intentions and values. It has become a major research focus.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-31c18bfdd35f",
+      "type": "grain",
+      "label": "Neural networks are compu...",
+      "content": "Neural networks are computing systems inspired by biological neural networks in animal brains. They consist of interconnected nodes (neurons) that process information.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-8f04fa0e21eb",
+      "type": "grain",
+      "label": "Symbolic AI (GOFAI, Good ...",
+      "content": "Symbolic AI (GOFAI, Good Old-Fashioned AI) uses logic and symbols to represent knowledge. Dominant until the 1980s, now complemented by neural approaches.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-e8e34324c66f",
+      "type": "grain",
+      "label": "Expert systems were early...",
+      "content": "Expert systems were early AI programs that used knowledge from experts to solve complex problems. Commercial success in the 1980s followed by decline.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-60928d930190",
+      "type": "grain",
+      "label": "Computer vision is a fiel...",
+      "content": "Computer vision is a field of AI that trains computers to interpret and understand visual information from images and videos. Applications include facial recognition and autonomous vehicles.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-f076503dc0f1",
+      "type": "grain",
+      "label": "AGI (Artificial General I...",
+      "content": "AGI (Artificial General Intelligence) would perform any intellectual task that a human can. Not yet achieved; remains a long-term goal of AI research.",
+      "core": false,
+      "context_spread": 0
+    },
+    {
+      "id": "G-989ef6274bd9",
+      "type": "grain",
+      "label": "The Turing Test, proposed...",
+      "content": "The Turing Test, proposed by Alan Turing in 1950, tests a machine ability to exhibit intelligent behavior equivalent to humans. It remains influential in AI philosophy.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-597bbee79b64",
+      "type": "grain",
+      "label": "Test: Engagement half-lif...",
+      "content": "Test: Engagement half-life tracking. Pursue consciousness-architecture thread for 7 days.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-cd2d89aa5088",
+      "type": "grain",
+      "label": "Machine Learning (ML) is ...",
+      "content": "Machine Learning (ML) is a field of study in artificial intelligence concerned with the development and study of statistical algorithms that can learn from data and generalize to unseen data.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-3a0e34d292bb",
+      "type": "grain",
+      "label": "Artificial Intelligence (...",
+      "content": "Artificial Intelligence (AI) is intelligence demonstrated by machines, as opposed to natural intelligence displayed by animals and humans. AI research has been defined as the field of study of intelligent agents.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-1e9445eb006f",
+      "type": "grain",
+      "label": "Token Issue: Conversation...",
+      "content": "Token Issue: Conversation history was 54k+ tokens, unbounded growth",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-14308287bce4",
+      "type": "grain",
+      "label": "Large Language Models (LL...",
+      "content": "Large Language Models (LLMs) like GPT are trained on massive text corpora to generate human-like text. They emerged as a dominant AI paradigm in the 2020s.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "G-3fdb73a91703",
+      "type": "grain",
+      "label": "Natural Language Processi...",
+      "content": "Natural Language Processing (NLP) enables computers to understand, interpret, and generate human language. Used in chatbots, translation, and sentiment analysis.",
+      "core": false,
+      "context_spread": 1
+    },
+    {
+      "id": "E-a2e10207",
+      "type": "entry",
+      "label": "flux",
+      "content": "flux"
+    },
+    {
+      "id": "E-c064fbca",
+      "type": "entry",
+      "label": "memory",
+      "content": "memory"
+    },
+    {
+      "id": "E-0459f398",
+      "type": "entry",
+      "label": "self-organizing",
+      "content": "self-organizing"
+    },
+    {
+      "id": "E-6e51d6a3",
+      "type": "entry",
+      "label": "retrieval",
+      "content": "retrieval"
+    },
+    {
+      "id": "E-ad2a542c",
+      "type": "entry",
+      "label": "fabric",
+      "content": "fabric"
+    },
+    {
+      "id": "E-7eb04a80",
+      "type": "entry",
+      "label": "vmo2",
+      "content": "vmo2"
+    },
+    {
+      "id": "E-244210e4",
+      "type": "entry",
+      "label": "project",
+      "content": "project"
+    },
+    {
+      "id": "E-dfc8aeb3",
+      "type": "entry",
+      "label": "deadline",
+      "content": "deadline"
+    },
+    {
+      "id": "E-ee4d988c",
+      "type": "entry",
+      "label": "may",
+      "content": "may"
+    },
+    {
+      "id": "E-158a323a",
+      "type": "entry",
+      "label": "2026",
+      "content": "2026"
+    },
+    {
+      "id": "E-ee5e2878",
+      "type": "entry",
+      "label": "annual",
+      "content": "annual"
+    },
+    {
+      "id": "E-4a189871",
+      "type": "entry",
+      "label": "performance",
+      "content": "performance"
+    },
+    {
+      "id": "E-c97ace4c",
+      "type": "entry",
+      "label": "review",
+      "content": "review"
+    },
+    {
+      "id": "E-6aef76c6",
+      "type": "entry",
+      "label": "scheduled",
+      "content": "scheduled"
+    },
+    {
+      "id": "E-aa689082",
+      "type": "entry",
+      "label": "april",
+      "content": "april"
+    },
+    {
+      "id": "E-82a3537f",
+      "type": "entry",
+      "label": "name",
+      "content": "name"
+    },
+    {
+      "id": "E-bd878fa2",
+      "type": "entry",
+      "label": "harsh",
+      "content": "harsh"
+    },
+    {
+      "id": "E-3962edee",
+      "type": "entry",
+      "label": "timezone",
+      "content": "timezone"
+    },
+    {
+      "id": "E-6a8ce2f4",
+      "type": "entry",
+      "label": "asia/calcutta",
+      "content": "asia/calcutta"
+    },
+    {
+      "id": "E-e6eaea18",
+      "type": "entry",
+      "label": "location",
+      "content": "location"
+    },
+    {
+      "id": "E-b4c0372a",
+      "type": "entry",
+      "label": "gurgaon",
+      "content": "gurgaon"
+    },
+    {
+      "id": "E-92db9c57",
+      "type": "entry",
+      "label": "haryana",
+      "content": "haryana"
+    },
+    {
+      "id": "E-3f404629",
+      "type": "entry",
+      "label": "telegram",
+      "content": "telegram"
+    },
+    {
+      "id": "E-01033229",
+      "type": "entry",
+      "label": "@harsh5i",
+      "content": "@harsh5i"
+    },
+    {
+      "id": "E-1397dcb1",
+      "type": "entry",
+      "label": "852766098",
+      "content": "852766098"
+    },
+    {
+      "id": "E-ec8202b6",
+      "type": "entry",
+      "label": "whatsapp",
+      "content": "whatsapp"
+    },
+    {
+      "id": "E-77a5cd5e",
+      "type": "entry",
+      "label": "+918860749760",
+      "content": "+918860749760"
+    },
+    {
+      "id": "E-96879611",
+      "type": "entry",
+      "label": "active",
+      "content": "active"
+    },
+    {
+      "id": "E-f8391613",
+      "type": "entry",
+      "label": "used",
+      "content": "used"
+    },
+    {
+      "id": "E-ad936fcb",
+      "type": "entry",
+      "label": "group",
+      "content": "group"
+    }
+  ],
+  "edges": [
+    {
+      "from": "E-586a866f",
+      "to": "G-b7d29bc450f1",
+      "weight": 0.6
+    },
+    {
+      "from": "E-b192e7b2",
+      "to": "G-b7d29bc450f1",
+      "weight": 0.6
+    },
+    {
+      "from": "E-b3eacd33",
+      "to": "G-b7d29bc450f1",
+      "weight": 0.6
+    },
+    {
+      "from": "G-b7d29bc450f1",
+      "to": "G-51115581ea6c",
+      "weight": 0.3
+    },
+    {
+      "from": "G-51115581ea6c",
+      "to": "G-b7d29bc450f1",
+      "weight": 0.3
+    },
+    {
+      "from": "E-d1e49ac4",
+      "to": "G-b6f2fd982d91",
+      "weight": 0.6
+    },
+    {
+      "from": "G-b6f2fd982d91",
+      "to": "G-6aa3ab924cab",
+      "weight": 0.3
+    },
+    {
+      "from": "G-6aa3ab924cab",
+      "to": "G-b6f2fd982d91",
+      "weight": 0.3
+    },
+    {
+      "from": "G-b6f2fd982d91",
+      "to": "G-1b3ac0d0c190",
+      "weight": 0.3
+    },
+    {
+      "from": "G-1b3ac0d0c190",
+      "to": "G-b6f2fd982d91",
+      "weight": 0.3
+    },
+    {
+      "from": "G-b6f2fd982d91",
+      "to": "G-6c371c83c7dc",
+      "weight": 0.3
+    },
+    {
+      "from": "G-6c371c83c7dc",
+      "to": "G-b6f2fd982d91",
+      "weight": 0.3
+    },
+    {
+      "from": "E-4ea5ee68",
+      "to": "G-be5c72223ca0",
+      "weight": 0.6
+    },
+    {
+      "from": "E-97ef1ee8",
+      "to": "G-be5c72223ca0",
+      "weight": 0.6
+    },
+    {
+      "from": "E-073c1634",
+      "to": "G-be5c72223ca0",
+      "weight": 0.6
+    },
+    {
+      "from": "E-db3defda",
+      "to": "G-be5c72223ca0",
+      "weight": 0.6
+    },
+    {
+      "from": "G-be5c72223ca0",
+      "to": "G-319866e19659",
+      "weight": 0.3
+    },
+    {
+      "from": "G-319866e19659",
+      "to": "G-be5c72223ca0",
+      "weight": 0.3
+    },
+    {
+      "from": "E-f480ffb2",
+      "to": "G-12a23904cc41",
+      "weight": 0.6
+    },
+    {
+      "from": "E-3252503a",
+      "to": "G-12a23904cc41",
+      "weight": 0.6
+    },
+    {
+      "from": "G-12a23904cc41",
+      "to": "G-6aa3ab924cab",
+      "weight": 0.3
+    },
+    {
+      "from": "G-6aa3ab924cab",
+      "to": "G-12a23904cc41",
+      "weight": 0.3
+    },
+    {
+      "from": "G-12a23904cc41",
+      "to": "G-1b3ac0d0c190",
+      "weight": 0.3
+    },
+    {
+      "from": "G-1b3ac0d0c190",
+      "to": "G-12a23904cc41",
+      "weight": 0.3
+    },
+    {
+      "from": "G-12a23904cc41",
+      "to": "G-b6f2fd982d91",
+      "weight": 0.3
+    },
+    {
+      "from": "G-b6f2fd982d91",
+      "to": "G-12a23904cc41",
+      "weight": 0.3
+    },
+    {
+      "from": "G-12a23904cc41",
+      "to": "G-6c371c83c7dc",
+      "weight": 0.3
+    },
+    {
+      "from": "G-6c371c83c7dc",
+      "to": "G-12a23904cc41",
+      "weight": 0.3
+    },
+    {
+      "from": "G-12a23904cc41",
+      "to": "G-d35079624e04",
+      "weight": 0.3
+    },
+    {
+      "from": "G-d35079624e04",
+      "to": "G-12a23904cc41",
+      "weight": 0.3
+    },
+    {
+      "from": "E-a2e10207",
+      "to": "G-6aa3ab924cab",
+      "weight": 0.5890547875335969
+    },
+    {
+      "from": "E-c064fbca",
+      "to": "G-6aa3ab924cab",
+      "weight": 0.5890547915099474
+    },
+    {
+      "from": "E-0459f398",
+      "to": "G-6aa3ab924cab",
+      "weight": 0.5890547940935627
+    },
+    {
+      "from": "E-6e51d6a3",
+      "to": "G-6aa3ab924cab",
+      "weight": 0.5890547964388669
+    },
+    {
+      "from": "E-ad2a542c",
+      "to": "G-6aa3ab924cab",
+      "weight": 0.589054798352106
+    },
+    {
+      "from": "E-7eb04a80",
+      "to": "G-4f73c1a5b611",
+      "weight": 0.5890600613564989
+    },
+    {
+      "from": "E-244210e4",
+      "to": "G-4f73c1a5b611",
+      "weight": 0.5890600655057127
+    },
+    {
+      "from": "E-dfc8aeb3",
+      "to": "G-4f73c1a5b611",
+      "weight": 0.5890600682999848
+    },
+    {
+      "from": "E-ee4d988c",
+      "to": "G-4f73c1a5b611",
+      "weight": 0.5890600704177986
+    },
+    {
+      "from": "E-158a323a",
+      "to": "G-4f73c1a5b611",
+      "weight": 0.5890600723351054
+    },
+    {
+      "from": "E-ee5e2878",
+      "to": "G-00f276094631",
+      "weight": 0.5890754144935146
+    },
+    {
+      "from": "E-4a189871",
+      "to": "G-00f276094631",
+      "weight": 0.5890754188149936
+    },
+    {
+      "from": "E-c97ace4c",
+      "to": "G-00f276094631",
+      "weight": 0.5890754221879212
+    },
+    {
+      "from": "E-6aef76c6",
+      "to": "G-00f276094631",
+      "weight": 0.5890754246453784
+    },
+    {
+      "from": "E-aa689082",
+      "to": "G-00f276094631",
+      "weight": 0.5890754271345665
+    },
+    {
+      "from": "E-82a3537f",
+      "to": "G-51115581ea6c",
+      "weight": 0.5893233051288971
+    },
+    {
+      "from": "E-bd878fa2",
+      "to": "G-51115581ea6c",
+      "weight": 0.589323306053533
+    },
+    {
+      "from": "E-3962edee",
+      "to": "G-491d2390e1a5",
+      "weight": 0.5893424442461144
+    },
+    {
+      "from": "E-6a8ce2f4",
+      "to": "G-491d2390e1a5",
+      "weight": 0.5893424482433188
+    },
+    {
+      "from": "E-e6eaea18",
+      "to": "G-1e6db81a4201",
+      "weight": 0.5893643903512239
+    },
+    {
+      "from": "E-b4c0372a",
+      "to": "G-1e6db81a4201",
+      "weight": 0.5893643942459077
+    },
+    {
+      "from": "E-92db9c57",
+      "to": "G-1e6db81a4201",
+      "weight": 0.5893643984040197
+    },
+    {
+      "from": "E-3f404629",
+      "to": "G-79d04e18d151",
+      "weight": 0.589388529185471
+    },
+    {
+      "from": "E-01033229",
+      "to": "G-79d04e18d151",
+      "weight": 0.5893885340212642
+    },
+    {
+      "from": "E-1397dcb1",
+      "to": "G-79d04e18d151",
+      "weight": 0.5893885369494894
+    },
+    {
+      "from": "E-ec8202b6",
+      "to": "G-319866e19659",
+      "weight": 0.5894033562624694
+    },
+    {
+      "from": "E-77a5cd5e",
+      "to": "G-319866e19659",
+      "weight": 0.58940336140236
+    },
+    {
+      "from": "E-96879611",
+      "to": "G-319866e19659",
+      "weight": 0.5894033643738908
+    },
+    {
+      "from": "E-f8391613",
+      "to": "G-319866e19659",
+      "weight": 0.5894033670151015
+    },
+    {
+      "from": "E-ad936fcb",
+      "to": "G-319866e19659",
+      "weight": 0.589403369048361
+    },
+    {
+      "from": "E-0afa5bb5",
+      "to": "G-576818fc1cf4",
+      "weight": 0.5894191084520022
+    },
+    {
+      "from": "E-1fd38d5c",
+      "to": "G-576818fc1cf4",
+      "weight": 0.5894191130360775
+    },
+    {
+      "from": "E-41ae6160",
+      "to": "G-576818fc1cf4",
+      "weight": 0.5894191157253207
+    },
+    {
+      "from": "E-2bb8bf72",
+      "to": "G-576818fc1cf4",
+      "weight": 0.5894191185598006
+    },
+    {
+      "from": "E-2937013f",
+      "to": "G-576818fc1cf4",
+      "weight": 0.5894191211686569
+    },
+    {
+      "from": "E-fa659831",
+      "to": "G-d35079624e04",
+      "weight": 0.5894356304577386
+    },
+    {
+      "from": "G-d35079624e04",
+      "to": "G-51115581ea6c",
+      "weight": 0.2947178156899243
+    },
+    {
+      "from": "G-51115581ea6c",
+      "to": "G-d35079624e04",
+      "weight": 0.29471781569262645
+    },
+    {
+      "from": "E-8368ec5f",
+      "to": "G-4e860970aee8",
+      "weight": 0.5894356321040257
+    },
+    {
+      "from": "E-4efbfea5",
+      "to": "G-4e860970aee8",
+      "weight": 0.5894356330450509
+    },
+    {
+      "from": "E-040eb379",
+      "to": "G-4e860970aee8",
+      "weight": 0.5894356347170084
+    },
+    {
+      "from": "E-06df90cc",
+      "to": "G-4e860970aee8",
+      "weight": 0.5894356359214935
+    },
+    {
+      "from": "E-8bd8ecc7",
+      "to": "G-4e860970aee8",
+      "weight": 0.5894356375522433
+    },
+    {
+      "from": "E-4030f0c0",
+      "to": "G-9f1301e59e72",
+      "weight": 0.589435639478879
+    },
+    {
+      "from": "E-96a4bc26",
+      "to": "G-19abfa3948ab",
+      "weight": 0.5894356408617062
+    },
+    {
+      "from": "E-5ca4f385",
+      "to": "G-19abfa3948ab",
+      "weight": 0.5894356418094866
+    },
+    {
+      "from": "E-8d69bd61",
+      "to": "G-19abfa3948ab",
+      "weight": 0.5894356427282189
+    },
+    {
+      "from": "E-986a1b71",
+      "to": "G-adcddacdd49a",
+      "weight": 0.5894356444731347
+    },
+    {
+      "from": "E-9372c470",
+      "to": "G-adcddacdd49a",
+      "weight": 0.5894356453857871
+    },
+    {
+      "from": "E-ace313ea",
+      "to": "G-adcddacdd49a",
+      "weight": 0.5894356462741202
+    },
+    {
+      "from": "E-ea7792a2",
+      "to": "G-52357810d549",
+      "weight": 0.5894356475049513
+    },
+    {
+      "from": "E-44ff7b02",
+      "to": "G-52357810d549",
+      "weight": 0.5894356484094972
+    },
+    {
+      "from": "E-9689cdd1",
+      "to": "G-52357810d549",
+      "weight": 0.5894356492971549
+    },
+    {
+      "from": "E-c51e455b",
+      "to": "G-52357810d549",
+      "weight": 0.5894356506131037
+    },
+    {
+      "from": "E-3c469e9d",
+      "to": "G-1e9445eb006f",
+      "weight": 0.5894356519222973
+    },
+    {
+      "from": "E-4a502846",
+      "to": "G-1e9445eb006f",
+      "weight": 0.5894356530112652
+    },
+    {
+      "from": "E-8b34dbc2",
+      "to": "G-1e9445eb006f",
+      "weight": 0.5894356539847162
+    },
+    {
+      "from": "E-259aa8ef",
+      "to": "G-1e9445eb006f",
+      "weight": 0.5894356549351988
+    },
+    {
+      "from": "E-25474d83",
+      "to": "G-1e9445eb006f",
+      "weight": 0.5894356558931123
+    },
+    {
+      "from": "E-8270f282",
+      "to": "G-b8a7404a4794",
+      "weight": 0.5894356573043121
+    },
+    {
+      "from": "E-6842ca7d",
+      "to": "G-b8a7404a4794",
+      "weight": 0.5894356584993397
+    },
+    {
+      "from": "E-d5f808a2",
+      "to": "G-b8a7404a4794",
+      "weight": 0.5894356594944079
+    },
+    {
+      "from": "E-66e1dfc7",
+      "to": "G-b8a7404a4794",
+      "weight": 0.5894356604671832
+    },
+    {
+      "from": "E-e309757b",
+      "to": "G-b8a7404a4794",
+      "weight": 0.5894356616007368
+    },
+    {
+      "from": "E-47a49356",
+      "to": "G-2b1cad7d6703",
+      "weight": 0.5894356630247719
+    },
+    {
+      "from": "E-9abecc01",
+      "to": "G-2b1cad7d6703",
+      "weight": 0.5894356646271491
+    },
+    {
+      "from": "E-a4076e68",
+      "to": "G-2b1cad7d6703",
+      "weight": 0.5894356659106723
+    },
+    {
+      "from": "E-a12dd3a7",
+      "to": "G-2b1cad7d6703",
+      "weight": 0.5894356668733146
+    },
+    {
+      "from": "E-5a41ac42",
+      "to": "G-2b1cad7d6703",
+      "weight": 0.5894356678494677
+    },
+    {
+      "from": "E-93c4abe2",
+      "to": "G-4ff91e7abe22",
+      "weight": 0.5894356692174331
+    }
+  ]
+}

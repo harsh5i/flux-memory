@@ -1,0 +1,16 @@
+{
+  "name": "flux-memory",
+  "version": "0.1.0",
+  "description": "Self-Organizing Retrieval Fabric for AI Memory",
+  "main": "src/mcp_server.py",
+  "scripts": {
+    "mcp": "python3 -m mcp.server.fastmcp src/mcp_server.py",
+    "test": "python3 -m pytest tests/ -v",
+    "demo": "python3 -c \"from src.flux import Flux; import tempfile; import os; db = tempfile.mktemp(suffix='.db'); f = Flux(db); f.remember('VMO2 deadline May 15'); print(f.query('VMO2 deadline')); os.unlink(db)\""
+  },
+  "dependencies": [
+    "mcp>=1.0.0",
+    "requests>=2.28.0"
+  ],
+  "python": ">=3.10"
+}
