@@ -880,23 +880,18 @@ function isConduitEvent(ev) {
 }
 
 function isGraphRefreshEvent(ev) {
-  return ev.category === 'write'
-    || ev.event === 'grain_stored'
+  return ev.event === 'grain_stored'
     || ev.event === 'entry_point_created'
-    || isConduitEvent(ev);
+    || ev.event === 'bootstrap_conduits_created'
+    || ev.event === 'graph_rebuild_completed';
 }
 
-function scheduleGraphRefreshAfterEvent(ev, color) {
+function scheduleGraphRefreshAfterEvent() {
   if (graphRefreshTimer) clearTimeout(graphRefreshTimer);
   graphRefreshTimer = setTimeout(() => {
     graphRefreshTimer = null;
-    fetchAll().then(() => {
-      if (!isConduitEvent(ev)) return;
-      const now = performance.now();
-      const activated = activateConduitEvent(ev, color, now);
-      if (activated) draw();
-    }).catch(err => console.warn('Graph refresh after event failed', err));
-  }, 250);
+    fetchAll().catch(err => console.warn('Graph refresh after structural event failed', err));
+  }, 1200);
 }
 
 function getPulse(map, key, now) {
@@ -1126,7 +1121,7 @@ function handleFluxEvent(ev) {
   }
 
   if (isGraphRefreshEvent(ev)) {
-    scheduleGraphRefreshAfterEvent(ev, color);
+    scheduleGraphRefreshAfterEvent();
   }
 }
 
