@@ -132,7 +132,7 @@ Shape:
   "nodes": [
     {
       "id": "04e6faffdeda4921a46d775bedbf4570",
-      "label": "Codex should use Flux Memory MCP server...",
+      "label": "Sample memory grain label...",
       "node_type": "grain",
       "decay_class": "working",
       "status": "active",
