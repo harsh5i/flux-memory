@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import threading
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -40,15 +41,23 @@ class SentenceTransformerBackend:
     """Wraps sentence-transformers for local embedding (§11.2)."""
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
-        from sentence_transformers import SentenceTransformer
-        self._model = SentenceTransformer(model_name)
         self._model_name = model_name
+        self._model = None
+        self._lock = threading.Lock()
+
+    def _model_instance(self):
+        if self._model is None:
+            with self._lock:
+                if self._model is None:
+                    from sentence_transformers import SentenceTransformer
+                    self._model = SentenceTransformer(self._model_name)
+        return self._model
 
     def embed(self, text: str) -> list[float]:
-        return self._model.encode(text, convert_to_numpy=True).tolist()
+        return self._model_instance().encode(text, convert_to_numpy=True).tolist()
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return self._model.encode(texts, convert_to_numpy=True).tolist()
+        return self._model_instance().encode(texts, convert_to_numpy=True).tolist()
 
     @property
     def model_name(self) -> str:
@@ -148,14 +157,14 @@ def vector_fallback(
 
     Returns merged list of (grain_id, score) sorted descending.
     """
+    grain_ids, matrix = load_all_embeddings(store)
+    if not grain_ids:
+        return existing_results
+
     try:
         query_embedding = backend.embed(query_text)
     except Exception as exc:
         logger.error("vector_fallback: embedding failed: %s", exc)
-        return existing_results
-
-    grain_ids, matrix = load_all_embeddings(store)
-    if not grain_ids:
         return existing_results
 
     candidates = top_k_nearest(query_embedding, grain_ids, matrix, k=cfg.VECTOR_FALLBACK_K)

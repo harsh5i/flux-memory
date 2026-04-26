@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 
 from .config import Config, DEFAULT_CONFIG
 from .graph import utcnow
+from .health import log_event
 from .propagation import effective_weight
 from .storage import FluxStore
 
@@ -66,11 +67,13 @@ def cleanup_pass(
             store.update_grain_status(grain_id, "dormant", dormant_since=now)
             newly_dormant += 1
 
-    return {
+    stats = {
         "candidates_scanned": len(candidates),
         "conduits_deleted": deleted,
         "grains_marked_dormant": newly_dormant,
     }
+    log_event(store, "decay", "cleanup_pass_completed", stats, now=now)
+    return stats
 
 
 def expiry_pass(
@@ -100,4 +103,6 @@ def expiry_pass(
             store.update_grain_status(grain.id, "archived")
             archived += 1
 
-    return {"grains_archived": archived}
+    stats = {"grains_archived": archived}
+    log_event(store, "decay", "expiry_pass_completed", stats, now=now)
+    return stats

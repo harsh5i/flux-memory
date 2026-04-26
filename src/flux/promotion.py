@@ -31,6 +31,7 @@ from typing import Iterable
 
 from .config import Config, DEFAULT_CONFIG
 from .graph import utcnow
+from .health import log_event
 from .propagation import TraceStep
 from .storage import FluxStore
 
@@ -41,6 +42,7 @@ def check_promotion(
     trace: list[TraceStep],
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
+    trace_id: str | None = None,
 ) -> bool:
     """Run the promotion check for one grain after a successful retrieval.
 
@@ -71,8 +73,18 @@ def check_promotion(
 
     # 5. Promote if threshold reached.
     if spread >= cfg.PROMOTION_THRESHOLD:
+        inbound_before = store.conn.execute(
+            "SELECT COUNT(*) AS n FROM conduits WHERE to_id = ? AND decay_class != 'core'",
+            (grain_id,),
+        ).fetchone()
         store.promote_grain_to_core(grain_id)
         store.upgrade_inbound_conduits_to_core(grain_id)
+        log_event(store, "feedback", "promotion_triggered", {
+            "grain_id": grain_id,
+            "context_spread": spread,
+            "promotion_threshold": cfg.PROMOTION_THRESHOLD,
+            "inbound_conduits_upgraded": int(inbound_before["n"] if inbound_before else 0),
+        }, trace_id=trace_id, now=now)
         return True
 
     return False
@@ -84,6 +96,7 @@ def check_promotions_bulk(
     trace: list[TraceStep],
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
+    trace_id: str | None = None,
 ) -> list[str]:
     """Run promotion checks for a batch of grains from the same retrieval.
 
@@ -92,7 +105,7 @@ def check_promotions_bulk(
     now = now or utcnow()
     promoted = []
     for grain_id in grain_ids:
-        if check_promotion(store, grain_id, trace, cfg, now=now):
+        if check_promotion(store, grain_id, trace, cfg, now=now, trace_id=trace_id):
             promoted.append(grain_id)
     return promoted
 

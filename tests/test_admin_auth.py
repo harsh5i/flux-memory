@@ -175,6 +175,22 @@ class TestAdminAuthTOTP:
         token = auth.authenticate("goodpassword", totp_code=code)
         assert token
 
+    def test_verify_totp_code(self, auth):
+        try:
+            import pyotp
+        except ImportError:
+            pytest.skip("pyotp not installed")
+        uri = auth.setup("goodpassword", enable_totp=True)
+        secret = uri.split("secret=")[1].split("&")[0]
+        assert auth.verify_totp_code(pyotp.TOTP(secret).now())
+        assert not auth.verify_totp_code("000000")
+
+    def test_disable_totp(self, auth):
+        auth.setup("goodpassword", enable_totp=True)
+        auth.disable_totp()
+        assert auth.totp_uri() is None
+        assert auth.authenticate("goodpassword")
+
     def test_totp_uri_not_none_when_enabled(self, auth):
         try:
             import pyotp  # noqa: F401

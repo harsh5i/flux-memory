@@ -2,17 +2,17 @@
 
 **Self-organizing retrieval fabric for AI memory.**
 
-Flux Memory is a production-ready, deployable AI memory system that persists knowledge as a self-modifying weighted graph. It learns which memories matter through feedback signals — reinforcing useful grains, decaying stale ones, and automatically clustering related knowledge.
+Flux Memory is an AI memory system that persists knowledge as a self-modifying weighted graph. It learns which memories matter through feedback signals - reinforcing useful grains, decaying stale ones, and automatically clustering related knowledge.
 
 ## Features
 
-- **Graph-based memory** — grains connected by weighted conduits, propagated via signal attenuation
-- **Self-organizing** — lazy decay, Louvain clustering, automatic promotion/demotion, shortcut reinforcement
-- **Three access paths** — MCP server (for AI agents), REST API (HTTP), Python SDK
-- **Booth architecture** — concurrent read workers, serial write queue, async feedback queue
-- **Per-caller rate limiting** — 500 grains/min default, configurable per instance
-- **Admin authentication** — argon2 password hashing, TOTP 2FA (RFC 6238), session tokens
-- **Two operating modes** — `flux_extracts` (local Ollama LLM) or `caller_extracts` (AI provides features)
+- **Graph-based memory** - grains connected by weighted conduits, propagated via signal attenuation
+- **Self-organizing** - lazy decay, Louvain clustering, automatic promotion/demotion, shortcut reinforcement
+- **Three access paths** - MCP server (for AI agents), REST API (HTTP), Python SDK
+- **Booth architecture** - concurrent read workers, serial write queue, async feedback queue
+- **Per-caller rate limiting** - 500 grains/min default, configurable per instance
+- **Admin authentication** - argon2 password hashing, TOTP 2FA (RFC 6238), session tokens
+- **Two operating modes** - `flux_extracts` (local Ollama LLM) or `caller_extracts` (AI provides features)
 
 ## Quick Start
 
@@ -21,6 +21,15 @@ Flux Memory is a production-ready, deployable AI memory system that persists kno
 ```bash
 pip install flux-memory
 ```
+
+Windows fallback if `flux` is not on PATH:
+
+```bat
+python -m flux --help
+python -m flux init --name my-memory
+```
+
+For CLI-first installs, `pipx install flux-memory` is recommended because it manages command shims and PATH setup.
 
 ### Initialize an instance
 
@@ -31,7 +40,13 @@ flux init --name my-memory
 This prompts for:
 - Operating mode (`caller_extracts` or `flux_extracts`)
 - Admin password (argon2-hashed)
-- Optional TOTP two-factor authentication
+- Optional TOTP two-factor authentication, with terminal QR and first-code verification
+
+Initialization also writes MCP client snippets under:
+
+```text
+~/.flux/<name>/integrations/
+```
 
 ### Start services
 
@@ -40,9 +55,51 @@ flux start --name my-memory
 ```
 
 Starts:
-- MCP server (stdio, for AI agent integration)
-- REST API at `http://localhost:7465`
+- REST API health endpoint at `http://localhost:7465/health`
 - Dashboard at `http://localhost:7462`
+
+To view the dashboard from a phone on the same local network, start with:
+
+```bash
+flux start --name my-memory --broadcast
+```
+
+This binds the dashboard to `0.0.0.0`, prints LAN URLs such as
+`http://192.168.x.x:7462`, and serves a device-frame preview at
+`/mobile-preview`. The REST API remains local-only by default.
+
+For private access from outside the local network, use a tailnet/VPN such as
+Tailscale instead of router port forwarding. Keep Flux running locally, sign in
+to Tailscale on this machine and the remote device, then publish only the
+dashboard to your private tailnet:
+
+```bash
+flux start --name my-memory
+tailscale serve --http=7462 http://127.0.0.1:7462
+tailscale serve status
+```
+
+Then open `http://<tailscale-device-name>:7462` from another signed-in
+Tailscale device. This keeps the dashboard private to your tailnet and does not
+expose the REST API or MCP transport to the public internet.
+
+If you do not want an overlay app, the private alternative is your own VPN
+endpoint, usually on your router/firewall. Connect to that VPN from the office
+using an OS-supported VPN profile, then open the dashboard over the home LAN
+address printed by `flux start --name my-memory --broadcast`. Do not forward
+port `7462` directly from the router to the internet.
+
+`flux start` does not make the stdio MCP server discoverable by itself. MCP clients launch stdio servers directly. Use the generated snippet or run:
+
+```bash
+flux mcp --name my-memory
+```
+
+from your MCP client configuration.
+
+In other words, `flux start` starts only the REST API and dashboard. It does
+not start a background network MCP server that Codex, Claude, Cursor, or other
+clients can auto-detect. Each MCP client must have its own config entry.
 
 ### Stop services
 
@@ -58,17 +115,38 @@ flux status --name my-memory
 
 ## MCP Integration
 
-Connect Flux Memory to any MCP-compatible AI agent. On first connection, call `flux_onboard` to receive integration instructions:
+Connect Flux Memory to any MCP-compatible AI agent. Flux uses stdio MCP by default, so the client must launch Flux.
+
+Generate or refresh client snippets:
+
+```bash
+flux mcp-config --name my-memory
+```
+
+Codex example:
+
+```toml
+[mcp_servers."flux-my-memory"]
+command = "python"
+args = ["-m", "flux.cli", "mcp", "--name", "my-memory"]
+```
+
+On first connection, call `flux_onboard` to receive integration instructions:
 
 ```
-flux_onboard() → returns workflow instructions + operating mode
+flux_onboard() -> returns workflow instructions + operating mode
 ```
 
 **Standard workflow per conversation turn:**
 
-1. `flux_retrieve(query)` — fetch relevant memories before responding
-2. `flux_store(content, provenance)` — save new facts after responding
-3. `flux_feedback(trace_id, grain_id, useful)` — rate each retrieved grain
+1. `flux_retrieve(query)` - fetch relevant memories before responding
+2. `flux_store(content, provenance)` - save new facts after responding
+3. `flux_feedback(trace_id, grain_id, useful)` - rate each retrieved grain
+
+For clients such as Codex, save the `flux_onboard` instructions into an
+always-loaded instruction surface, such as a project or user `AGENTS.md`.
+Saving the workflow only as a memory note is not enough, because the agent must
+already remember to use Flux before it can retrieve that note.
 
 **Available MCP tools:**
 
@@ -120,7 +198,11 @@ Instance config lives at `~/.flux/<name>/config.yaml`. Key parameters:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `OPERATING_MODE` | `flux_extracts` | LLM extraction mode |
+| `MCP_HOST` | `127.0.0.1` | Reserved for network MCP transports |
+| `MCP_PORT` | `7464` | Reserved MCP port |
+| `REST_HOST` | `127.0.0.1` | REST bind host |
 | `REST_PORT` | `7465` | REST API port |
+| `DASHBOARD_HOST` | `127.0.0.1` | Dashboard bind host |
 | `DASHBOARD_PORT` | `7462` | Dashboard port |
 | `READ_WORKERS` | `3` | Concurrent read workers |
 | `MAX_GRAINS_PER_CALL` | `100` | Batch ingestion cap |
@@ -145,12 +227,12 @@ Password + TOTP gated interactive menu: search/purge/restore grains, view audit 
 ## Development
 
 ```bash
-git clone https://github.com/harsh5i/v0.5-flux-memory
-cd v0.5-flux-memory
+git clone https://github.com/harsh5i/flux-memory
+cd flux-memory
 pip install -e ".[test]"
 pytest tests/
 ```
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT - see [LICENSE](LICENSE)

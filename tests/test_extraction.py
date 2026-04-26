@@ -21,6 +21,7 @@ from flux.extraction import (
     _fallback_tokenize,
     decompose_query,
     extract_and_store_grains,
+    rebuild_missing_graph,
 )
 from flux.llm import (
     OllamaBackend,
@@ -371,6 +372,36 @@ class TestExtractAndStoreGrains:
             def complete(self, prompt): return "[]"
         new_ids = extract_and_store_grains("hi", "hello", EmptyLLM(), MockEmbeddingBackend(), store)
         assert new_ids == []
+
+
+class TestRebuildMissingGraph:
+    def test_rebuilds_bare_active_grain(self, store):
+        class FailingLLM:
+            def complete(self, prompt):
+                raise RuntimeError("llm unavailable")
+
+        grain = Grain(content="Dashboard should show conduits", provenance="user_stated")
+        store.insert_grain(grain)
+
+        stats = rebuild_missing_graph(store, FailingLLM(), MockEmbeddingBackend())
+
+        assert stats["grains_rebuilt"] == 1
+        assert stats["embeddings_created"] == 1
+        assert stats["conduits_created"] >= 1
+        embedding_count = store.conn.execute(
+            "SELECT COUNT(*) AS n FROM grain_embeddings WHERE grain_id = ?",
+            (grain.id,),
+        ).fetchone()["n"]
+        assert embedding_count == 1
+
+    def test_skips_already_connected_grain(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        extract_and_store_grains("I prefer Python.", "Python is useful.", llm, emb, store)
+
+        stats = rebuild_missing_graph(store, llm, emb)
+
+        assert stats["grains_rebuilt"] == 0
 
 
 # ===================================================================== _fallback_tokenize

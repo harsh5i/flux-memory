@@ -38,6 +38,7 @@ class FluxStore:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self._ensure_schema()
 
     def close(self) -> None:

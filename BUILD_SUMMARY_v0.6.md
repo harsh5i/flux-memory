@@ -1,8 +1,12 @@
-# Flux Memory v0.6 — Build Summary
+# Flux Memory v0.6 Build Summary
 
 ## Overview
 
-v0.6 is a production-ready, deployable release. It adds a full CLI, REST API, booth architecture, admin authentication, and MCP onboarding on top of the v0.5 engine.
+v0.6 introduces the first packaged Flux Memory release with a CLI, REST API,
+dashboard, booth-style service wrapper, admin authentication, and stdio MCP
+server support. Post-release Windows validation found several install and
+runtime issues that must be treated as release blockers before calling the
+package production-ready.
 
 ## What Changed
 
@@ -10,83 +14,89 @@ v0.6 is a production-ready, deployable release. It adds a full CLI, REST API, bo
 
 | File | Description |
 |------|-------------|
-| `src/flux/service.py` | `FluxService` booth architecture — ThreadPoolExecutor for reads, serial Queue for writes, async Queue for feedback, per-caller sliding-window rate limiting |
-| `src/flux/rest_api.py` | FastAPI REST API — POST /store /store/batch /retrieve /feedback, GET /health /grains, X-Caller-Id header |
-| `src/flux/admin_auth.py` | argon2 password hashing, pyotp TOTP (RFC 6238), 3-attempt lockout, session tokens |
-| `src/flux/cli.py` | click CLI — `flux init/start/stop/status/admin`, background daemon via subprocess.Popen, PID file, interactive admin menu |
+| `src/flux/service.py` | `FluxService` booth architecture with read workers, serial writes, async feedback, and per-caller rate limiting |
+| `src/flux/rest_api.py` | FastAPI REST API for store, retrieve, feedback, health, and grain listing |
+| `src/flux/admin_auth.py` | Admin password hashing, TOTP support, lockout, and session tokens |
+| `src/flux/cli.py` | Click CLI for `init`, `start`, `stop`, `status`, `admin`, `mcp`, and `mcp-config` |
+| `src/flux/__main__.py` | `python -m flux` fallback for environments where the `flux` console script is not on PATH |
 
-### Modified components
+### Corrected post-release issues
+
+| Issue | Fix |
+|-------|-----|
+| Windows `pip install --user` can install `flux.exe` outside PATH | Documented `python -m flux` fallback and recommended `pipx`; added package module entry point |
+| `flux start` claimed success before services were reachable | Start now writes logs, waits for REST/dashboard health, and reports partial failure with log path |
+| Dashboard API could hang because the dashboard used single-threaded `HTTPServer` | Dashboard now uses `ThreadingHTTPServer` |
+| Dashboard could fail under Windows console encodings due Unicode status output | Console startup message now uses ASCII |
+| REST root returned 404 | Added `GET /` service metadata endpoint |
+| REST bound to `0.0.0.0` by default | Added host config defaults and bound local services to `127.0.0.1` |
+| Users need a phone-friendly dashboard on the local network | Added `flux start --broadcast`, LAN URL output, responsive mobile graph controls, bottom-sheet panels, and `/mobile-preview` |
+| MCP server was stdio-only but `flux start` implied it was online/discoverable | Added explicit `flux mcp --name <instance>` command and generated client snippets |
+| MCP dependency was not declared | Added `mcp>=1.0` to default dependencies |
+| TOTP QR required optional dependency not installed by default | Added `qrcode>=7.0` to default dependencies |
+| TOTP setup did not require first-code verification | Init now verifies a 6-digit TOTP code or disables TOTP |
+| Project URLs pointed to the old repo name | Updated metadata and docs to `harsh5i/flux-memory` |
+
+### Existing core changes from v0.6
 
 | File | Change |
 |------|--------|
-| `src/flux/mcp_server.py` | Server name from `cfg.MCP_SERVER_NAME`; added `flux_onboard` and `flux_list_grains` tools; `caller_id` on all tools; booth-aware dispatch via optional `service=` |
-| `src/flux/config.py` | Added `OPERATING_MODE`, `MCP_SERVER_NAME`, port fields, booth tuning params (`READ_WORKERS`, `MAX_GRAINS_PER_CALL`, `MAX_WRITE_QUEUE_DEPTH`, `MAX_GRAINS_PER_MINUTE`), admin auth params; LLM default → `qwen2.5:7b-instruct` |
-| `src/flux/storage.py` | `check_same_thread=False` for multi-threaded access; `INSERT OR IGNORE` on `entries.feature` for concurrent-retrieve race safety |
-| `src/flux/llm.py` | Removed `MockLLMBackend` (moved to `tests/mocks.py`) |
-| `src/flux/embedding.py` | Removed `MockEmbeddingBackend` (moved to `tests/mocks.py`) |
-| `src/flux/__init__.py` | Removed mock exports from public API |
-| `pyproject.toml` | Version 0.6.0; new deps: fastapi, uvicorn, click, argon2-cffi, pyotp; `flux` CLI entry point; MIT license; project URLs |
+| `src/flux/mcp_server.py` | Server name from `cfg.MCP_SERVER_NAME`; added `flux_onboard` and `flux_list_grains`; caller IDs on tools; optional service dispatch |
+| `src/flux/config.py` | Added operating mode, service ports/hosts, booth tuning params, and admin auth params |
+| `src/flux/storage.py` | `check_same_thread=False` for multi-threaded access and `INSERT OR IGNORE` for concurrent entry creation |
+| `src/flux/llm.py` / `src/flux/embedding.py` | Moved test mocks out of production modules |
+| `pyproject.toml` | Version 0.6.1 package metadata and console script |
 
-### Bug fixes
+## Validation
 
-| Bug | Fix |
-|-----|-----|
-| §1A.9: `count_inbound_conduits` missed bidirectional shortcuts | SQL now checks `to_id=grain_id OR (from_id=grain_id AND direction='bidirectional')` |
-| §1B.1: mocks in production code | Moved `MockLLMBackend` and `MockEmbeddingBackend` to `tests/mocks.py` |
-| SQLite cross-thread crash in booth | Added `check_same_thread=False` to `FluxStore` connection |
-| Concurrent retrieval UNIQUE constraint race | `INSERT OR IGNORE` on `entries.feature` |
-| FastAPI annotation resolution with local Pydantic models | Moved models to module scope in `rest_api.py` |
+At the original v0.6 release, the suite was reported as:
 
-## Test Results
-
-```
+```text
 399 passed, 0 failed, 0 skipped
 ```
 
-### New test files (89 tests)
+Post-release validation for the Windows install/runtime fixes included:
 
-| File | Tests | Coverage |
-|------|-------|----------|
-| `tests/test_service.py` | 25 | Booth: rate limiter, lifecycle, store/batch/retrieve/feedback, concurrency |
-| `tests/test_rest_api.py` | 26 | REST: all endpoints, caller ID, rate limits, batch cap, status filters |
-| `tests/test_admin_auth.py` | 22 | Auth: setup, authenticate, lockout, sessions, password change, TOTP |
-| `tests/test_mcp_v6.py` | 16 | MCP: onboarding, list_grains, caller_id, booth dispatch, unknown tool |
+```text
+python -m compileall src\flux
+python -m flux --help
+python -m flux mcp-config --name test1
+direct REST root smoke check
+direct TOTP verify/disable smoke check
+direct MCP snippet generation smoke check
+```
 
-### Existing tests retained: 310 (zero regressions)
+The local machine used for this follow-up could not run pytest because pytest
+failed before executing project code with `PermissionError: [WinError 5]` while
+creating its temp directory. Treat the direct smoke checks as patch validation,
+not as a replacement for CI or a clean-machine pytest run.
 
-### §1B.5 compliance test
+## Remaining Release Notes
 
-`tests/test_decay.py::TestBidirectionalOrphanFix` — two tests verify:
-1. A grain reachable only via a bidirectional shortcut (`from_id=grain_id`) is NOT incorrectly marked dormant
-2. A grain with only a forward conduit still decays correctly (regression guard)
-
-## Spec compliance
-
-| Requirement | Status |
-|-------------|--------|
-| §1A.1 `flux init` CLI | ✅ |
-| §1A.2 `flux start/stop/status/admin` | ✅ |
-| §1A.4 REST API | ✅ |
-| §1A.5 `flux_onboard` MCP tool | ✅ |
-| §1A.6 `caller_id` on all MCP/REST | ✅ |
-| §1A.7 Booth architecture | ✅ |
-| §1A.7a Ingestion limits | ✅ |
-| §1A.8 Admin auth (argon2 + TOTP) | ✅ |
-| §1A.9 Bidirectional orphan fix | ✅ |
-| §1B.1 Zero mocks in production code | ✅ |
-| §1B.4 399 tests, zero skips | ✅ |
-| §1B.5 Bidirectional orphan test | ✅ |
+- `pip install flux-memory` itself is controlled by pip and will remain plain
+  text. Flux can improve the first-run CLI experience, but package install
+  output should not rely on post-install scripts.
+- Stdio MCP servers are not automatically discoverable by Codex, Claude, or
+  Cursor. Users must add the generated client config snippet, or the product
+  must ship an explicit installer/integration command for each client.
+- Flux onboarding instructions should be persisted into an always-loaded agent
+  instruction surface, such as `AGENTS.md`, not only into memory. Otherwise the
+  agent must remember to use Flux before it can retrieve the instruction that
+  tells it to use Flux.
+- The dashboard and MCP flows need end-to-end CI coverage on Windows before the
+  release should be described as production-ready.
 
 ## Installation
 
 ```bash
-pip install flux-memory==0.6.0
-flux init --name my-memory
-flux start --name my-memory
+pip install flux-memory==0.6.1
+python -m flux init --name my-memory
+python -m flux start --name my-memory
+python -m flux mcp-config --name my-memory
 ```
 
 ## Repository
 
-https://github.com/harsh5i/v0.5-flux-memory
+https://github.com/harsh5i/flux-memory
 
 Tag: `v0.6`

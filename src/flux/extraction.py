@@ -130,10 +130,6 @@ def extract_and_store_grains(
     if not grain_dicts:
         return []
 
-    # Load existing embeddings once for the bootstrap neighbour search.
-    existing_grain_ids, existing_matrix = load_all_embeddings(store)
-    model_name = getattr(embedding_backend, "model_name", "unknown")
-
     new_grain_ids: list[str] = []
     for gd in grain_dicts:
         content = gd.get("content", "").strip()
@@ -141,55 +137,169 @@ def extract_and_store_grains(
         if not content:
             continue
 
-        grain = Grain(content=content, provenance=provenance, created_at=now)
-        store.insert_grain(grain)
-        new_grain_ids.append(grain.id)
-        log_event(store, "write", "grain_stored", {
-            "grain_id": grain.id,
-            "provenance": provenance,
-            "content_len": len(content),
-        }, now=now)
-
-        # Bootstrap: embed once, find neighbours, create conduits.
-        try:
-            embedding = embedding_backend.embed(content)
-        except Exception as exc:
-            logger.error("extract_and_store_grains: embedding failed for grain %s: %s", grain.id, exc)
-            continue
-
-        if existing_grain_ids:
-            neighbours = top_k_nearest(embedding, existing_grain_ids, existing_matrix, k=5)
-            for neighbour_id, similarity in neighbours:
-                if similarity <= 0:
-                    continue
-                weight = similarity * cfg.INITIAL_WEIGHT_SCALE
-                if weight < cfg.WEIGHT_FLOOR:
-                    continue
-                conduit = Conduit(
-                    from_id=grain.id,
-                    to_id=neighbour_id,
-                    weight=weight,
-                    created_at=now,
-                    last_used=now,
-                    direction="bidirectional",
-                    decay_class="working",
-                )
-                try:
-                    store.insert_conduit(conduit)
-                except Exception:
-                    pass  # UNIQUE constraint: conduit already exists; skip silently.
-
-        # Store the embedding for future fallback use.
-        store_embedding(store, grain.id, embedding, model_name, now)
-
-        # Connect to entry points extracted from the grain's content.
-        _connect_to_entries(grain, llm, store, cfg, now)
+        grain_id = store_atomic_grain(
+            content,
+            provenance,
+            llm=llm,
+            embedding_backend=embedding_backend,
+            store=store,
+            cfg=cfg,
+            now=now,
+        )
+        new_grain_ids.append(grain_id)
 
     log_event(store, "write", "bootstrap_conduits_created", {
         "grains_stored": len(new_grain_ids),
     }, now=now)
 
     return new_grain_ids
+
+
+def store_atomic_grain(
+    content: str,
+    provenance: str,
+    *,
+    llm: LLMBackend,
+    embedding_backend: EmbeddingBackend,
+    store: FluxStore,
+    cfg: Config = DEFAULT_CONFIG,
+    now: datetime | None = None,
+) -> str:
+    """Store one already-atomic grain and wire it into the graph.
+
+    This is the caller_extracts path: the caller has already decided the memory
+    is worth storing, so Flux should still create embeddings and entry conduits
+    even when the local LLM cannot perform full grain extraction.
+    """
+    now = now or utcnow()
+    grain = Grain(content=content, provenance=provenance, created_at=now)
+    store.insert_grain(grain)
+    log_event(store, "write", "grain_stored", {
+        "grain_id": grain.id,
+        "provenance": provenance,
+        "content_len": len(content),
+    }, now=now)
+    backfill_grain_graph(grain, llm=llm, embedding_backend=embedding_backend,
+                         store=store, cfg=cfg, now=now)
+    return grain.id
+
+
+def backfill_grain_graph(
+    grain: Grain,
+    *,
+    llm: LLMBackend,
+    embedding_backend: EmbeddingBackend,
+    store: FluxStore,
+    cfg: Config = DEFAULT_CONFIG,
+    now: datetime | None = None,
+) -> dict:
+    """Create missing embedding, neighbour conduits, and entry conduits for a grain."""
+    now = now or utcnow()
+    before_edges = _count_conduits(store)
+    embedding_created = False
+
+    row = store.conn.execute(
+        "SELECT 1 FROM grain_embeddings WHERE grain_id = ?",
+        (grain.id,),
+    ).fetchone()
+
+    if row is None:
+        existing_grain_ids, existing_matrix = load_all_embeddings(store)
+        model_name = getattr(embedding_backend, "model_name", "unknown")
+        try:
+            embedding = embedding_backend.embed(grain.content)
+            embedding_created = True
+        except Exception as exc:
+            logger.error("backfill_grain_graph: embedding failed for grain %s: %s", grain.id, exc)
+        else:
+            if existing_grain_ids:
+                neighbours = top_k_nearest(embedding, existing_grain_ids, existing_matrix, k=5)
+                for neighbour_id, similarity in neighbours:
+                    if similarity <= 0:
+                        continue
+                    weight = similarity * cfg.INITIAL_WEIGHT_SCALE
+                    if weight < cfg.WEIGHT_FLOOR:
+                        continue
+                    conduit = Conduit(
+                        from_id=grain.id,
+                        to_id=neighbour_id,
+                        weight=weight,
+                        created_at=now,
+                        last_used=now,
+                        direction="bidirectional",
+                        decay_class="working",
+                    )
+                    try:
+                        store.insert_conduit(conduit)
+                    except Exception:
+                        pass
+            store_embedding(store, grain.id, embedding, model_name, now)
+
+    _connect_to_entries(grain, llm, store, cfg, now)
+    after_edges = _count_conduits(store)
+    return {
+        "grain_id": grain.id,
+        "embedding_created": embedding_created,
+        "conduits_created": after_edges - before_edges,
+    }
+
+
+def rebuild_missing_graph(
+    store: FluxStore,
+    llm: LLMBackend,
+    embedding_backend: EmbeddingBackend,
+    cfg: Config = DEFAULT_CONFIG,
+    *,
+    limit: int | None = None,
+    now: datetime | None = None,
+) -> dict:
+    """Backfill graph artifacts for active grains missing embeddings or inbound routes."""
+    now = now or utcnow()
+    scanned = 0
+    rebuilt = 0
+    embeddings_created = 0
+    conduits_created = 0
+
+    for grain in store.iter_grains(status="active"):
+        if limit is not None and rebuilt >= limit:
+            break
+        scanned += 1
+        has_embedding = store.conn.execute(
+            "SELECT 1 FROM grain_embeddings WHERE grain_id = ?",
+            (grain.id,),
+        ).fetchone() is not None
+        has_inbound = store.count_inbound_conduits(grain.id) > 0
+        if has_embedding and has_inbound:
+            continue
+        stats = backfill_grain_graph(
+            grain,
+            llm=llm,
+            embedding_backend=embedding_backend,
+            store=store,
+            cfg=cfg,
+            now=now,
+        )
+        rebuilt += 1
+        embeddings_created += 1 if stats["embedding_created"] else 0
+        conduits_created += stats["conduits_created"]
+
+    log_event(store, "write", "graph_rebuild_completed", {
+        "grains_scanned": scanned,
+        "grains_rebuilt": rebuilt,
+        "embeddings_created": embeddings_created,
+        "conduits_created": conduits_created,
+    }, now=now)
+    return {
+        "grains_scanned": scanned,
+        "grains_rebuilt": rebuilt,
+        "embeddings_created": embeddings_created,
+        "conduits_created": conduits_created,
+    }
+
+
+def _count_conduits(store: FluxStore) -> int:
+    row = store.conn.execute("SELECT COUNT(*) AS n FROM conduits").fetchone()
+    return int(row["n"] if row else 0)
 
 
 def _connect_to_entries(

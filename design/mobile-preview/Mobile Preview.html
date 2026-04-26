@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Mobile Preview — Flux Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #060810;
+    min-height: 100vh;
+    font-family: system-ui, sans-serif;
+    padding: 32px 24px 48px;
+    overflow-x: auto;
+  }
+
+  h1 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: #3a4255; text-align: center; margin-bottom: 32px;
+  }
+
+  .devices-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 40px;
+    flex-wrap: wrap;
+  }
+
+  .device { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .device-label { font-size: 10px; color: #3a4255; text-transform: uppercase; letter-spacing: 0.6px; }
+  .device-sub { font-size: 10px; color: #22253a; }
+
+  /* ── IPHONE AIR FRAME ── */
+  .iphone-air {
+    width: 280px;
+    background: #1c1c1e;
+    border-radius: 50px;
+    border: 1.5px solid #2c2c2e;
+    box-shadow:
+      0 0 0 1px #0a0a0c,
+      inset 0 0 0 1px #3a3a3e,
+      0 40px 80px rgba(0,0,0,0.9),
+      0 0 40px rgba(34,211,238,0.04);
+    position: relative;
+    padding: 14px;
+  }
+  .iphone-air .dynamic-island {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    width: 90px; height: 30px;
+    background: #000; border-radius: 20px; z-index: 10;
+  }
+  .iphone-air .screen {
+    width: 100%; height: 580px;
+    border-radius: 38px; overflow: hidden;
+    background: #080a0e;
+    position: relative;
+  }
+  .iphone-air .screen iframe {
+    width: 390px; height: 844px;
+    border: none; display: block;
+    transform: scale(0.642);
+    transform-origin: top left;
+    pointer-events: auto;
+  }
+  .iphone-air .home-bar {
+    width: 80px; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,0.12);
+    margin: 10px auto 0;
+  }
+  /* Side buttons */
+  .iphone-air::before {
+    content: '';
+    position: absolute; right: -3px; top: 120px;
+    width: 3px; height: 60px;
+    background: #2a2a2c; border-radius: 0 3px 3px 0;
+  }
+  .iphone-air::after {
+    content: '';
+    position: absolute; left: -3px; top: 100px;
+    width: 3px; height: 100px;
+    background: #2a2a2c; border-radius: 3px 0 0 3px;
+    box-shadow: 0 50px 0 #2a2a2c, 0 -50px 0 #2a2a2c;
+  }
+
+  /* ── RAZR UNFOLDED FRAME ── */
+  .razr-open {
+    width: 258px;
+    background: #18181a;
+    border-radius: 30px;
+    border: 1.5px solid #2c2c2e;
+    box-shadow:
+      0 0 0 1px #0a0a0c,
+      inset 0 0 0 1px #303032,
+      0 40px 80px rgba(0,0,0,0.9);
+    position: relative;
+    padding: 12px;
+    /* Hinge seam */
+  }
+  .razr-open .hinge-seam {
+    position: absolute; left: 12px; right: 12px;
+    top: 50%; transform: translateY(-50%);
+    height: 6px;
+    background: #0f0f11;
+    border-top: 1px solid #222224;
+    border-bottom: 1px solid #222224;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .razr-open .punch-hole {
+    position: absolute; top: 18px; left: 50%;
+    transform: translateX(-50%);
+    width: 10px; height: 10px;
+    background: #000; border-radius: 50%; z-index: 10;
+  }
+  .razr-open .screen {
+    width: 100%; height: 540px;
+    border-radius: 20px; overflow: hidden;
+    background: #080a0e;
+  }
+  .razr-open .screen iframe {
+    width: 360px; height: 780px;
+    border: none; display: block;
+    transform: scale(0.653);
+    transform-origin: top left;
+    pointer-events: auto;
+  }
+  .razr-open .home-bar {
+    width: 70px; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,0.1);
+    margin: 8px auto 0;
+  }
+
+  /* ── RAZR FOLDED FRAME ── */
+  .razr-folded {
+    width: 200px;
+    background: #18181a;
+    border-radius: 24px 24px 8px 8px;
+    border: 1.5px solid #2c2c2e;
+    box-shadow:
+      0 0 0 1px #0a0a0c,
+      inset 0 0 0 1px #303032,
+      0 20px 50px rgba(0,0,0,0.9);
+    position: relative;
+    padding: 10px;
+  }
+  .razr-folded .cover-screen {
+    width: 100%; height: 120px;
+    border-radius: 16px 16px 4px 4px;
+    overflow: hidden;
+    background: #080a0e;
+    position: relative;
+  }
+  .razr-folded .cover-screen iframe {
+    /* Folded outer screen: ~390px wide, 162px tall viewport */
+    width: 390px; height: 162px;
+    border: none; display: block;
+    transform: scale(0.462);
+    transform-origin: top left;
+    pointer-events: auto;
+  }
+  .razr-folded .hinge {
+    height: 14px;
+    background: linear-gradient(180deg, #111113 0%, #1a1a1c 50%, #111113 100%);
+    border-top: 1px solid #2a2a2c;
+    border-bottom: 1px solid #2a2a2c;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .razr-folded .hinge::after {
+    content: ''; width: 40px; height: 3px;
+    border-radius: 2px; background: #222224;
+  }
+  .razr-folded .body-bottom {
+    height: 14px;
+    background: #18181a;
+    border-radius: 0 0 6px 6px;
+  }
+  .razr-folded .punch-hole {
+    position: absolute; top: 10px; left: 50%;
+    transform: translateX(-50%);
+    width: 9px; height: 9px;
+    background: #000; border-radius: 50%; z-index: 10;
+  }
+
+  .note {
+    font-size: 10px; color: #2a3040; text-align: center;
+    line-height: 1.7; max-width: 200px;
+  }
+  .note span { color: #22d3ee; }
+</style>
+</head>
+<body>
+<h1>Flux Memory Dashboard — Mobile Layouts</h1>
+<div class="devices-row">
+
+  <!-- iPhone Air -->
+  <div class="device">
+    <div class="device-label">iPhone Air</div>
+    <div class="device-sub">390 × 844</div>
+    <div class="iphone-air">
+      <div class="dynamic-island"></div>
+      <div class="screen">
+        <iframe src="Flux Dashboard.html" scrolling="no"></iframe>
+      </div>
+      <div class="home-bar"></div>
+    </div>
+    <div class="note">
+      Single finger: drag node<br/>
+      Two fingers: pan + pinch zoom<br/>
+      Tap node → <span>inspector bubble glows</span><br/>
+      Tap bubble → sheet slides up
+    </div>
+  </div>
+
+  <!-- Motorola Razr Unfolded -->
+  <div class="device">
+    <div class="device-label">Motorola Razr+</div>
+    <div class="device-sub">360 × 780 · Unfolded</div>
+    <div class="razr-open">
+      <div class="punch-hole"></div>
+      <div class="hinge-seam"></div>
+      <div class="screen">
+        <iframe src="Flux Dashboard.html" scrolling="no"></iframe>
+      </div>
+      <div class="home-bar"></div>
+    </div>
+    <div class="note">
+      Full screen graph<br/>
+      Bubble bar at bottom<br/>
+      Hinge seam is cosmetic only
+    </div>
+  </div>
+
+  <!-- Motorola Razr Folded -->
+  <div class="device">
+    <div class="device-label">Motorola Razr+</div>
+    <div class="device-sub">390 × 162 · Folded outer screen</div>
+    <div class="razr-folded">
+      <div class="punch-hole"></div>
+      <div class="cover-screen">
+        <iframe
+          src="Flux Dashboard.html"
+          scrolling="no"
+          style="height:162px"
+        ></iframe>
+      </div>
+      <div class="hinge"></div>
+      <div class="body-bottom"></div>
+    </div>
+    <div class="note">
+      Ultra-compact mode<br/>
+      Status + graph only<br/>
+      <span>No bubbles, no sheets</span><br/>
+      Quick glance view
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

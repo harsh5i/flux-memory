@@ -27,8 +27,11 @@ from typing import Iterable
 
 from .config import Config, DEFAULT_CONFIG
 from .graph import Conduit, utcnow
+from .health import log_event
 from .propagation import TraceStep, effective_weight
 from .storage import FluxStore
+
+HIGHWAY_WEIGHT_THRESHOLD = 0.80
 
 
 # --------------------------------------------------------------------- reinforce
@@ -39,6 +42,7 @@ def reinforce(
     cfg: Config = DEFAULT_CONFIG,
     *,
     now: datetime | None = None,
+    trace_id: str | None = None,
 ) -> None:
     """Widen conduits on the successful trace, upsert co-retrieval counts,
     create/reinforce shortcuts between successful pairs, sharpen affinities."""
@@ -56,7 +60,7 @@ def reinforce(
             continue
         target = store.get_grain(step.to_id)
         multiplier = cfg.provenance_multiplier(target.provenance) if target else 1.0
-        _widen(store, conduit, cfg, now, multiplier=multiplier)
+        _widen(store, conduit, cfg, now, multiplier=multiplier, trace_id=trace_id)
 
     # 2. Co-retrieval counts and shortcut creation between every successful pair.
     successful_list = sorted(successful)  # stable iteration
@@ -66,9 +70,9 @@ def reinforce(
             count = store.increment_co_retrieval(a, b, delta=1)
             existing = store.conduit_between(a, b)
             if existing is not None:
-                _widen(store, existing, cfg, now)
+                _widen(store, existing, cfg, now, trace_id=trace_id)
             elif count >= cfg.SHORTCUT_THRESHOLD:
-                _create_shortcut(store, a, b, cfg, now)
+                _create_shortcut(store, a, b, cfg, now, co_count=count, trace_id=trace_id)
 
     # 3. Sharpen entry affinities on successful first hops. Entries are
     #    identified by the trace step's from_id when hop == 0.
@@ -91,6 +95,7 @@ def penalize(
     cfg: Config = DEFAULT_CONFIG,
     *,
     now: datetime | None = None,
+    trace_id: str | None = None,
 ) -> None:
     """Narrow conduits to failed grains; delete if weight falls below floor.
     Dampen entry affinities on failed first hops."""
@@ -109,10 +114,23 @@ def penalize(
         # starvation, not from explicit negative feedback.
         current = effective_weight(conduit, cfg, now, apply_grace_floor=False)
         new_weight = current * cfg.DECAY_FACTOR
+        weight_drop = max(current - new_weight, 0.0)
         if new_weight < cfg.WEIGHT_FLOOR:
             store.delete_conduit(conduit.id)
+            deleted = True
         else:
             store.update_conduit_weight(conduit.id, new_weight, now)
+            deleted = False
+
+        log_event(store, "feedback", "conduit_penalized", {
+            "conduit_id": conduit.id,
+            "from_id": conduit.from_id,
+            "to_id": conduit.to_id,
+            "previous_weight": round(current, 6),
+            "new_weight": round(new_weight, 6),
+            "weight_drop": round(weight_drop, 6),
+            "deleted": deleted,
+        }, trace_id=trace_id, now=now)
 
         if step.hop == 0:
             entry = store.get_entry(step.from_id)
@@ -130,6 +148,7 @@ def _widen(
     now: datetime,
     *,
     multiplier: float = 1.0,
+    trace_id: str | None = None,
 ) -> None:
     """weight += LEARNING_RATE * multiplier * (1 - weight), clamped by ceiling.
     Applies lazy decay first so the delta is relative to the current
@@ -140,6 +159,26 @@ def _widen(
     store.update_conduit_weight(
         conduit.id, new_weight, now, use_count=conduit.use_count + 1
     )
+    log_event(store, "feedback", "conduit_reinforced", {
+        "conduit_id": conduit.id,
+        "from_id": conduit.from_id,
+        "to_id": conduit.to_id,
+        "previous_weight": round(current, 6),
+        "new_weight": round(new_weight, 6),
+        "delta": round(new_weight - current, 6),
+        "multiplier": round(multiplier, 6),
+        "use_count": conduit.use_count + 1,
+    }, trace_id=trace_id, now=now)
+
+    if current < HIGHWAY_WEIGHT_THRESHOLD <= new_weight:
+        log_event(store, "feedback", "highway_formed", {
+            "conduit_id": conduit.id,
+            "from_id": conduit.from_id,
+            "to_id": conduit.to_id,
+            "previous_weight": round(current, 6),
+            "new_weight": round(new_weight, 6),
+            "threshold": HIGHWAY_WEIGHT_THRESHOLD,
+        }, trace_id=trace_id, now=now)
 
 
 def _create_shortcut(
@@ -148,6 +187,9 @@ def _create_shortcut(
     grain_b: str,
     cfg: Config,
     now: datetime,
+    *,
+    co_count: int,
+    trace_id: str | None = None,
 ) -> None:
     """Create a bidirectional shortcut. Enforce MAX_EDGES_PER_GRAIN by evicting
     the weakest edge on any saturated endpoint first (Section 4.3)."""
@@ -174,6 +216,14 @@ def _create_shortcut(
         direction="bidirectional",
     )
     store.insert_conduit(shortcut)
+    log_event(store, "feedback", "shortcut_created", {
+        "conduit_id": shortcut.id,
+        "from_id": shortcut.from_id,
+        "to_id": shortcut.to_id,
+        "weight": round(shortcut.weight, 6),
+        "co_retrieval_count": co_count,
+        "threshold": cfg.SHORTCUT_THRESHOLD,
+    }, trace_id=trace_id, now=now)
 
 
 def _evict_weakest(

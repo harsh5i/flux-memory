@@ -112,9 +112,13 @@ class Config:
 
     # --- MCP server identity (§1A.2) ---
     MCP_SERVER_NAME: str = "flux-memory"
+    MCP_HOST: str = "127.0.0.1"
     MCP_PORT: int = 7464
+    REST_HOST: str = "127.0.0.1"
     REST_PORT: int = 7465
+    ADMIN_REST_HOST: str = "127.0.0.1"
     ADMIN_REST_PORT: int = 7463
+    DASHBOARD_HOST: str = "127.0.0.1"
     DASHBOARD_PORT: int = 7462
 
     # --- Booth architecture (§1A.7) ---

@@ -25,10 +25,11 @@ from typing import Any
 from .config import Config, DEFAULT_CONFIG
 from .embedding import EmbeddingBackend, vector_fallback
 from .expansion import expand_results
-from .extraction import decompose_query, extract_and_store_grains
+from .extraction import decompose_query, extract_and_store_grains, store_atomic_grain
 from .graph import Grain, Trace, new_id, utcnow
 from .health import log_event
 from .llm import LLMBackend
+from .promotion import check_promotion
 from .propagation import PropagationResult, TraceStep, propagate, retrieval_confidence
 from .reinforcement import penalize, reinforce
 from .storage import FluxStore
@@ -101,7 +102,17 @@ def flux_store(
         )
         if grain_ids:
             return grain_ids[0]
-        # Fallback: LLM produced no grains; store manually.
+        # Fallback: the caller already supplied an atomic fact, so store it and
+        # still wire it into the graph with embeddings and entry conduits.
+        return store_atomic_grain(
+            content,
+            provenance,
+            llm=llm,
+            embedding_backend=emb,
+            store=store,
+            cfg=cfg,
+            now=now,
+        )
 
     grain = Grain(content=content, provenance=provenance, created_at=now)
     store.insert_grain(grain)
@@ -270,10 +281,11 @@ def flux_feedback(
     effective_signal = base_signal * trend_modulator * provenance_modulator
 
     if effective_signal > 0:
-        reinforce(store, trace_steps, [grain_id], cfg=cfg, now=now)
+        reinforce(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id)
+        check_promotion(store, grain_id, trace_steps, cfg=cfg, now=now, trace_id=trace_id)
         action = "reinforced"
     else:
-        penalize(store, trace_steps, [grain_id], cfg=cfg, now=now)
+        penalize(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id)
         action = "penalized"
 
     # Record usefulness event so future ratio queries can use it.
