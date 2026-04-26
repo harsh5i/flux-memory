@@ -327,6 +327,56 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
             return 0
         return int(r["traced"] or 0) + int(r["untraced"] or 0)
 
+    def _count_successful_retrievals(cutoff: str) -> int:
+        """Count retrievals that received at least one useful feedback event."""
+        traced = store.conn.execute(
+            """
+            SELECT COUNT(DISTINCT r.trace_id) AS n
+            FROM events r
+            WHERE r.category='retrieval'
+              AND r.event='grains_returned'
+              AND r.timestamp>=?
+              AND r.trace_id IS NOT NULL
+              AND r.trace_id <> ''
+              AND EXISTS (
+                SELECT 1
+                FROM events f
+                WHERE f.category='feedback'
+                  AND f.event='retrieval_successful'
+                  AND f.timestamp>=?
+                  AND f.trace_id = r.trace_id
+              )
+            """,
+            (cutoff, cutoff),
+        ).fetchone()
+        untraced_retrievals = store.conn.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM events
+            WHERE category='retrieval'
+              AND event='grains_returned'
+              AND timestamp>=?
+              AND (trace_id IS NULL OR trace_id = '')
+            """,
+            (cutoff,),
+        ).fetchone()
+        untraced_successes = store.conn.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM events
+            WHERE category='feedback'
+              AND event='retrieval_successful'
+              AND timestamp>=?
+              AND (trace_id IS NULL OR trace_id = '')
+            """,
+            (cutoff,),
+        ).fetchone()
+        legacy_successes = min(
+            int(untraced_retrievals["n"] or 0) if untraced_retrievals else 0,
+            int(untraced_successes["n"] or 0) if untraced_successes else 0,
+        )
+        return (int(traced["n"] or 0) if traced else 0) + legacy_successes
+
     # Highway growth rate: new conduits that crossed weight 0.80 (proxied by
     # reinforce events that set weight above 0.80, logged in feedback events).
     hgr = store.conn.execute(
@@ -378,7 +428,7 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
 
     # Retrieval success rate: % where at least one grain was marked useful.
     ret_total = _count_trace_scoped("retrieval", "grains_returned", cutoff_short)
-    ret_success = _count_trace_scoped("feedback", "retrieval_successful", cutoff_short)
+    ret_success = _count_successful_retrievals(cutoff_short)
     signals["retrieval_success_rate"] = min(ret_success / ret_total, 1.0) if ret_total > 0 else 0.0
 
     # Fallback trigger rate.
