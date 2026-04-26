@@ -35,7 +35,7 @@ Current local instance:
 
 - Dashboard: `http://localhost:7462`
 - REST API: `http://localhost:7465`
-- Instance DB: `C:\Users\harsh\.flux\test1\flux.db`
+- Instance DB: `~/.flux/<name>/flux.db`
 
 ## Serving Model
 
@@ -275,7 +275,7 @@ After modifying `src/flux/dashboard.py`:
 2. Start local service:
 
    ```powershell
-   flux start --name test1
+   flux start --name my-memory
    ```
 
 3. Open:

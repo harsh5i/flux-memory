@@ -1,7 +1,7 @@
 # Flux Memory v0.5 — CLAUDE.md
 
 Spec: `docs/flux-memory-docs.md`  
-Checkpoint log: `C:\Users\harsh\OneDrive\Desktop\Flux\CHECKPOINT.md`
+Checkpoint log: keep local checkpoint files outside this repository.
 
 ## Hard constraints (never deviate)
 - Python 3.10+, SQLite 3.35+ with WAL mode

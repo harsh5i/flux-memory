@@ -60,7 +60,7 @@ Post-release validation for the Windows install/runtime fixes included:
 ```text
 python -m compileall src\flux
 python -m flux --help
-python -m flux mcp-config --name test1
+python -m flux mcp-config --name my-memory
 direct REST root smoke check
 direct TOTP verify/disable smoke check
 direct MCP snippet generation smoke check

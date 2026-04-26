@@ -448,7 +448,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
       </svg>
       <div>
         <div class="brand-name">Flux Memory</div>
-        <div class="brand-sub" id="instance-name">test1</div>
+        <div class="brand-sub" id="instance-name">instance</div>
       </div>
     </div>
     <div id="status-badge" class="badge-warning">
