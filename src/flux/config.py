@@ -101,7 +101,7 @@ class Config:
 
     # --- LLM backend (§1A.10) ---
     LLM_BASE_URL: str = "http://localhost:11434"
-    LLM_MODEL: str = "qwen2.5:7b-instruct"
+    LLM_MODEL: str = "llama3.1:8b"
     LLM_TIMEOUT_SECONDS: float = 30.0
 
     # --- Embedding model (§1A.10) ---

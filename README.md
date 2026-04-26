@@ -208,7 +208,7 @@ Instance config lives at `~/.flux/<name>/config.yaml`. Key parameters:
 | `MAX_GRAINS_PER_CALL` | `100` | Batch ingestion cap |
 | `MAX_GRAINS_PER_MINUTE` | `500` | Per-caller rate limit |
 | `MAX_WRITE_QUEUE_DEPTH` | `1000` | Write queue backpressure cap |
-| `LLM_MODEL` | `qwen2.5:7b-instruct` | Ollama model (flux_extracts mode) |
+| `LLM_MODEL` | `llama3.1:8b` | Ollama model (flux_extracts mode) |
 
 ## Admin
 
@@ -222,7 +222,7 @@ Password + TOTP gated interactive menu: search/purge/restore grains, view audit 
 
 - Python 3.10+
 - SQLite 3.35+ (WAL mode)
-- For `flux_extracts` mode: [Ollama](https://ollama.ai) with `qwen2.5:7b-instruct`
+- For `flux_extracts` mode: [Ollama](https://ollama.ai) with any configured local model
 
 ## Development
 
