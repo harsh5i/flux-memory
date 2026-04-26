@@ -142,6 +142,15 @@ class TestComputeEventSignals:
         sigs = _compute_event_signals(store, now)
         assert sigs["retrieval_success_rate"] == pytest.approx(0.6)
 
+    def test_retrieval_success_rate_counts_one_success_per_trace(self, store):
+        now = _now()
+        log_event(store, "retrieval", "grains_returned", {"hop_count": 2}, trace_id="trace-1", now=now)
+        log_event(store, "retrieval", "grains_returned", {"hop_count": 2}, trace_id="trace-2", now=now)
+        log_event(store, "feedback", "retrieval_successful", {}, trace_id="trace-1", now=now)
+        log_event(store, "feedback", "retrieval_successful", {}, trace_id="trace-1", now=now)
+        sigs = _compute_event_signals(store, now)
+        assert sigs["retrieval_success_rate"] == pytest.approx(0.5)
+
     def test_avg_hops_from_events(self, store):
         now = _now()
         log_event(store, "retrieval", "grains_returned", {"hop_count": 2}, now=now)

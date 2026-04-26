@@ -311,6 +311,22 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
         ).fetchone()
         return int(r["n"]) if r else 0
 
+    def _count_trace_scoped(category: str, event: str, cutoff: str) -> int:
+        """Count one event per trace when trace_id exists, plus legacy untraced events."""
+        r = store.conn.execute(
+            """
+            SELECT
+              COUNT(DISTINCT NULLIF(trace_id, '')) AS traced,
+              SUM(CASE WHEN trace_id IS NULL OR trace_id = '' THEN 1 ELSE 0 END) AS untraced
+            FROM events
+            WHERE category=? AND event=? AND timestamp>=?
+            """,
+            (category, event, cutoff),
+        ).fetchone()
+        if not r:
+            return 0
+        return int(r["traced"] or 0) + int(r["untraced"] or 0)
+
     # Highway growth rate: new conduits that crossed weight 0.80 (proxied by
     # reinforce events that set weight above 0.80, logged in feedback events).
     hgr = store.conn.execute(
@@ -361,9 +377,9 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
     signals["avg_hops_per_retrieval"] = float(hops["a"] or 0.0) if hops else 0.0
 
     # Retrieval success rate: % where at least one grain was marked useful.
-    ret_total = _count("retrieval", "grains_returned", cutoff_short) or 0
-    ret_success = _count("feedback", "retrieval_successful", cutoff_short)
-    signals["retrieval_success_rate"] = ret_success / ret_total if ret_total > 0 else 0.0
+    ret_total = _count_trace_scoped("retrieval", "grains_returned", cutoff_short)
+    ret_success = _count_trace_scoped("feedback", "retrieval_successful", cutoff_short)
+    signals["retrieval_success_rate"] = min(ret_success / ret_total, 1.0) if ret_total > 0 else 0.0
 
     # Fallback trigger rate.
     fallbacks = _count("retrieval", "fallback_triggered", cutoff_short)

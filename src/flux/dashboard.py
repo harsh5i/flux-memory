@@ -833,9 +833,14 @@ let activityParticles = [];
 let seenEventKeys = new Set();
 let eventPollTimer = null;
 let lastActivityAt = 0;
+let graphRefreshTimer = null;
 let activityEventEdgeKeys = null;
 
 function activityColor(ev) {
+  if (ev.event === 'conduit_penalized') return '#fb7185';
+  if (ev.event === 'shortcut_created') return '#a78bfa';
+  if (ev.event === 'highway_formed') return '#22d3ee';
+  if (ev.event === 'conduit_reinforced') return '#fbbf24';
   if (ev.category === 'retrieval') return '#22d3ee';
   if (ev.category === 'write') return '#86efac';
   if (ev.category === 'feedback') return ev.data?.useful === false ? '#fb7185' : '#fbbf24';
@@ -844,7 +849,17 @@ function activityColor(ev) {
 }
 
 function eventKey(ev) {
-  return [ev.timestamp, ev.category, ev.event, ev.data?.trace_id, ev.data?.grain_id, ev.data?.feature]
+  return [
+    ev.timestamp,
+    ev.category,
+    ev.event,
+    ev.data?.trace_id,
+    ev.data?.grain_id,
+    ev.data?.feature,
+    ev.data?.conduit_id,
+    ev.data?.from_id,
+    ev.data?.to_id,
+  ]
     .filter(Boolean).join('|');
 }
 
@@ -852,6 +867,36 @@ function edgeKey(l) {
   const sid = typeof l.source === 'object' ? l.source.id : l.source;
   const tid = typeof l.target === 'object' ? l.target.id : l.target;
   return `${sid}->${tid}`;
+}
+
+function isConduitEvent(ev) {
+  const data = ev?.data || {};
+  return [
+    'conduit_reinforced',
+    'conduit_penalized',
+    'highway_formed',
+    'shortcut_created',
+  ].includes(ev?.event) && Boolean(data.conduit_id || (data.from_id && data.to_id));
+}
+
+function isGraphRefreshEvent(ev) {
+  return ev.category === 'write'
+    || ev.event === 'grain_stored'
+    || ev.event === 'entry_point_created'
+    || isConduitEvent(ev);
+}
+
+function scheduleGraphRefreshAfterEvent(ev, color) {
+  if (graphRefreshTimer) clearTimeout(graphRefreshTimer);
+  graphRefreshTimer = setTimeout(() => {
+    graphRefreshTimer = null;
+    fetchAll().then(() => {
+      if (!isConduitEvent(ev)) return;
+      const now = performance.now();
+      const activated = activateConduitEvent(ev, color, now);
+      if (activated) draw();
+    }).catch(err => console.warn('Graph refresh after event failed', err));
+  }, 250);
 }
 
 function getPulse(map, key, now) {
@@ -896,14 +941,16 @@ function pruneActivity(now) {
 }
 
 function activateEdge(edge, color, now) {
+  if (!edge) return 0;
   const key = edgeKey(edge);
-  if (activityEventEdgeKeys?.has(key)) return;
+  if (activityEventEdgeKeys?.has(key)) return 0;
   activityEventEdgeKeys?.add(key);
   activityEdgePulses.set(key, { until: now + 2400, duration: 2400, color });
   activityParticles.push({ key, edge, start: now, duration: 1800, color });
   if (activityParticles.length > 700) {
     activityParticles = activityParticles.slice(-700);
   }
+  return 1;
 }
 
 function pulseNodeOnly(node, color, now) {
@@ -976,14 +1023,38 @@ function activateEventTargets(ev, color, now) {
   return activated;
 }
 
-function findTraceEdge(step) {
+function findConduitEdge(data) {
+  if (!data) return null;
+  const conduitId = data.conduit_id ? String(data.conduit_id) : '';
+  const fromId = data.from_id ? String(data.from_id) : '';
+  const toId = data.to_id ? String(data.to_id) : '';
   return canvasLinks.find(edge => {
     const sid = edge.source?.id;
     const tid = edge.target?.id;
-    if (edge.id && step.conduit_id && edge.id === step.conduit_id) return true;
-    if (sid === step.from_id && tid === step.to_id) return true;
-    return edge.direction === 'bidirectional' && sid === step.to_id && tid === step.from_id;
-  });
+    if (conduitId && edge.id === conduitId) return true;
+    if (fromId && toId && sid === fromId && tid === toId) return true;
+    return Boolean(fromId && toId && edge.direction === 'bidirectional' && sid === toId && tid === fromId);
+  }) || null;
+}
+
+function activateConduitEvent(ev, color, now) {
+  const data = ev.data || {};
+  let activated = 0;
+  activityEventEdgeKeys = new Set();
+  try {
+    const edge = findConduitEdge(data);
+    if (edge) activated += activateEdge(edge, color, now);
+    activated += pulseNodeById(data.from_id, color, now);
+    activated += pulseNodeById(data.to_id, color, now);
+    activated += pulseNodeById(data.grain_id, color, now);
+  } finally {
+    activityEventEdgeKeys = null;
+  }
+  return activated;
+}
+
+function findTraceEdge(step) {
+  return findConduitEdge(step);
 }
 
 async function animateTrace(traceId, color) {
@@ -1042,6 +1113,11 @@ function handleFluxEvent(ev) {
     activated = pulseFeatureNodes(data.feature, color, now);
     setActivityLabel('write/entry_point', color);
     if (activated) draw();
+  } else if (isConduitEvent(ev)) {
+    activated = activateConduitEvent(ev, color, now);
+    const label = ev.category && ev.event ? `${ev.category}/${ev.event}` : 'flux conduit';
+    setActivityLabel(label, color);
+    if (activated) draw();
   } else {
     activated = activateEventTargets(ev, color, now);
     const label = ev.category && ev.event ? `${ev.category}/${ev.event}` : 'flux activity';
@@ -1049,8 +1125,8 @@ function handleFluxEvent(ev) {
     if (activated || ev.category !== 'system') draw();
   }
 
-  if (ev.category === 'write' || ev.event === 'grain_stored' || ev.event === 'entry_point_created') {
-    setTimeout(() => fetchAll().catch(err => console.warn('Graph refresh after event failed', err)), 250);
+  if (isGraphRefreshEvent(ev)) {
+    scheduleGraphRefreshAfterEvent(ev, color);
   }
 }
 
