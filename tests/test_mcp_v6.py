@@ -73,6 +73,16 @@ class TestFluxOnboard:
         assert "flux_store" in instructions
         assert "flux_feedback" in instructions
 
+    def test_onboard_instructions_define_generic_caller_identity(self, store, cfg):
+        result = dispatch("flux_onboard", {}, store, cfg)
+        instructions = result["instructions"]
+
+        assert "client" in instructions
+        assert "role" in instructions
+        assert "client:role" in instructions
+        assert "memory_writer" in instructions
+        assert "Save these instructions" in instructions
+
 
 # ---------------------------------------------------------------- flux_list_grains
 
@@ -137,6 +147,25 @@ class TestFluxRetrieveCaller:
         result = dispatch("flux_retrieve", {"query": "retrievable", "caller_id": "agent-b"}, store, cfg)
         assert "grains" in result
         assert "trace_id" in result
+
+    def test_retrieve_accepts_client_and_role_fields(self, store, cfg):
+        dispatch("flux_store", {"content": "portable caller identity"}, store, cfg)
+        result = dispatch(
+            "flux_retrieve",
+            {
+                "query": "portable caller identity",
+                "client": "my-custom-bot",
+                "role": "background_lookup",
+            },
+            store,
+            cfg,
+        )
+
+        assert "trace_id" in result
+
+        health = dispatch("flux_health", {}, store, cfg)
+        callers = {c["caller_id"] for c in health["caller_feedback"]}
+        assert "my-custom-bot:background_lookup" in callers
 
 
 # ---------------------------------------------------------------- unknown tool

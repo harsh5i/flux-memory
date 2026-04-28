@@ -143,6 +143,14 @@ flux_onboard() -> returns workflow instructions + operating mode
 2. `flux_store(content, provenance)` - save new facts after responding
 3. `flux_feedback(trace_id, grain_id, useful)` - rate each retrieved grain
 
+Every client should also send a portable caller identity:
+
+- `client`: any stable AI/tool name, such as `codex`, `claude`, or `local-agent-1`
+- `role`: one of `chat`, `memory_writer`, `background_lookup`, `system`, `admin`, `test`
+
+Use `caller_id="<client>:<role>"`, for example `local-agent-1:chat`.
+MCP clients may instead send separate `client` and `role` fields.
+
 For clients such as Codex, save the `flux_onboard` instructions into an
 always-loaded instruction surface, such as a project or user `AGENTS.md`.
 Saving the workflow only as a memory note is not enough, because the agent must
@@ -170,7 +178,9 @@ GET  /health
 GET  /grains?status=active&limit=50
 ```
 
-Pass `X-Caller-Id: agent-name` header for per-caller rate limiting and tracking.
+Pass `X-Flux-Client` and `X-Flux-Role` headers for caller attribution, or use
+legacy `X-Caller-Id: <client>:<role>`. Dashboard compliance groups calls by
+client and role.
 
 ## Python SDK
 

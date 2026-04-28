@@ -372,16 +372,19 @@ class TestFluxHealth:
         caller = next(
             (
                 c for c in result["caller_feedback"]
-                if c["caller_id"] == "ambient_suggestions"
+                if c["caller_id"] == "codex:background_lookup"
             ),
             None,
         )
         assert caller is not None
+        assert caller["client"] == "codex"
+        assert caller["role"] == "background_lookup"
+        assert caller["display_name"] == "Codex / Background Lookup"
         assert caller["rate"] == pytest.approx(0.0)
         assert caller["missing"] == pytest.approx(1.0)
         assert caller["healthy"] is False
         assert not any(
-            w["signal"] == "feedback_compliance_rate:ambient_suggestions"
+            w["signal"] == "feedback_compliance_rate:codex:background_lookup"
             for w in result["active_warnings"]
         )
 
@@ -414,5 +417,51 @@ class TestFluxHealth:
         result = flux_health(store, now=now)
         callers = {c["caller_id"] for c in result["caller_feedback"]}
 
-        assert "ambient_suggestions" in callers
-        assert "codex" not in callers
+        assert "codex:background_lookup" in callers
+        assert "codex:chat" not in callers
+
+    def test_feedback_compliance_accepts_arbitrary_client_with_standard_role(self, store):
+        now = _now()
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "grain_ids": ["g1"],
+                "grains_count": 1,
+                "caller_id": "my-custom-bot:memory_writer",
+            },
+            trace_id="trace-custom",
+            now=now,
+        )
+
+        result = flux_health(store, now=now)
+        caller = next(
+            c for c in result["caller_feedback"]
+            if c["caller_id"] == "my-custom-bot:memory_writer"
+        )
+
+        assert caller["client"] == "my-custom-bot"
+        assert caller["role"] == "memory_writer"
+        assert caller["display_name"] == "My Custom Bot / Memory Writer"
+
+    def test_feedback_compliance_maps_legacy_memory_writer(self, store):
+        now = _now()
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "grain_ids": ["g1"],
+                "grains_count": 1,
+                "caller_id": "memory_writing_agent",
+            },
+            trace_id="trace-writer",
+            now=now,
+        )
+
+        result = flux_health(store, now=now)
+        callers = {c["caller_id"] for c in result["caller_feedback"]}
+
+        assert "codex:memory_writer" in callers
+        assert "memory_writing_agent" not in callers

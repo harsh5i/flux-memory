@@ -192,7 +192,7 @@ class TestFluxRetrieve:
 
         err = excinfo.value
         assert getattr(err, "recoverable", False) is True
-        assert getattr(err, "caller_id", None) == "agent-a"
+        assert getattr(err, "caller_id", None) == "agent-a:chat"
         assert getattr(err, "missing", None) == 2
         assert getattr(err, "pending_traces", None) == [
             {

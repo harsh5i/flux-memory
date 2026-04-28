@@ -160,7 +160,7 @@ class TestFluxServiceRetrieve:
             """
         ).fetchone()
 
-        assert json.loads(row["data"])["caller_id"] == "agent-retrieve"
+        assert json.loads(row["data"])["caller_id"] == "agent-retrieve:chat"
 
 
 # ---------------------------------------------------------------- feedback
@@ -201,7 +201,7 @@ class TestFluxServiceFeedback:
             """
         ).fetchone()
 
-        assert json.loads(row["data"])["caller_id"] == "agent-feedback"
+        assert json.loads(row["data"])["caller_id"] == "agent-feedback:chat"
 
 
 # ---------------------------------------------------------------- health and list

@@ -2290,6 +2290,23 @@ Three separate channels:
 
 Feedback lives on the read channel because it operates on a retrieval trace.
 
+**Caller attribution**
+
+All clients identify themselves with an AI-agnostic caller contract:
+
+- `client`: any stable free-form AI/tool name, e.g. `codex`, `claude`, `local-agent-1`, or a private assistant name.
+- `role`: a controlled role describing why the call happened: `chat`, `memory_writer`, `background_lookup`, `system`, `admin`, or `test`.
+
+The canonical single-field form is `caller_id="<client>:<role>"`, such as
+`local-agent-1:chat` or `my-private-bot:memory_writer`. MCP clients may send
+separate `client` and `role` fields; REST clients may send `X-Flux-Client` and
+`X-Flux-Role` headers. Flux normalizes legacy caller names such as
+`ambient_suggestions`, `codex_ambient_*`, and `memory_writing_agent` into the
+same client/role shape for dashboard grouping and feedback enforcement.
+
+`flux_onboard` returns this contract and instructs clients to save it in their
+persistent/core instructions so future sessions keep using the same identity.
+
 ### 13.6 Ingestion Model
 
 A separate extractor LLM reads conversations and emits atomic grains via the write channel. Flux does not process raw conversations itself. The extractor is external to Flux.

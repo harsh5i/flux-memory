@@ -747,8 +747,9 @@ function renderHealth() {
         ${callerFeedback.map(c => {
           const rate = Number(c.rate) || 0;
           const healthy = c.healthy === true || rate >= 0.8;
+          const displayName = c.display_name || c.caller_id || 'Unknown caller';
           return `<div class="caller-row ${healthy ? 'good' : 'bad'}">
-            <div class="caller-name" title="${esc(c.caller_id)}">${esc(c.caller_id)}</div>
+            <div class="caller-name" title="${esc(c.caller_id)}">${esc(displayName)}</div>
             <div class="caller-rate" style="color:${healthy?'var(--green)':'var(--rose)'}">${pct(rate)}</div>
             <div class="caller-meta">${esc(c.received)} / ${esc(c.expected)} feedback · ${esc(c.missing)} missing · ${esc(c.retrievals)} retrievals</div>
           </div>`;
