@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -162,6 +163,111 @@ _HEALTHY_RANGES: dict[str, dict] = {
 
 # ---------------------------------------------------------------- event logging
 
+_CALLER_ROLE_LABELS = {
+    "chat": "Chat",
+    "memory_writer": "Memory Writer",
+    "background_lookup": "Background Lookup",
+    "system": "System",
+    "admin": "Admin",
+    "test": "Test",
+    "legacy": "Legacy",
+    "other": "Other",
+}
+_VALID_CALLER_ROLES = set(_CALLER_ROLE_LABELS)
+_ROLE_ALIASES = {
+    "memory_writer": "memory_writer",
+    "memory_writing": "memory_writer",
+    "memory": "memory_writer",
+    "writer": "memory_writer",
+    "background_lookup": "background_lookup",
+    "background": "background_lookup",
+    "ambient": "background_lookup",
+    "ambient_suggestions": "background_lookup",
+    "suggestions": "background_lookup",
+}
+
+
+def _slug(value: Any, default: str) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[^a-z0-9_.-]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text or default
+
+
+def _caller_role(value: Any, default: str = "chat") -> str:
+    role = _slug(value, default).replace("-", "_")
+    role = _ROLE_ALIASES.get(role, role)
+    return role if role in _VALID_CALLER_ROLES else "other"
+
+
+def _display_client(client: str) -> str:
+    parts = [p for p in re.split(r"[-_:.]+", client) if p]
+    return " ".join(part.capitalize() for part in parts) if parts else "Unknown"
+
+
+def compose_caller_id(
+    client: str | None = None,
+    role: str | None = None,
+    *,
+    fallback: str | None = None,
+) -> str:
+    """Return the portable caller_id form: arbitrary client + controlled role."""
+    if client or role:
+        resolved_client = _slug(client or fallback, "unknown")
+        resolved_role = _caller_role(role, "chat")
+        return f"{resolved_client}:{resolved_role}"
+    return str(fallback or "unknown").strip() or "unknown"
+
+
+def caller_identity(
+    caller_id: str | None,
+    query: str | None = None,
+    *,
+    client: str | None = None,
+    role: str | None = None,
+) -> dict[str, str]:
+    """Resolve legacy and portable caller attribution into client/role fields."""
+    query_l = str(query or "").strip().lower()
+
+    if client or role:
+        client_id, role_id = compose_caller_id(client, role, fallback=caller_id).split(":", 1)
+    else:
+        raw = str(caller_id or "").strip()
+        raw_l = raw.lower()
+        ambient_prompt = "ambient suggestions" in query_l
+        memory_prompt = "memory writing agent" in query_l
+
+        if (
+            raw_l == "ambient_suggestions"
+            or raw_l.startswith("codex_ambient")
+            or (raw_l in {"codex", "default", "unknown", "anonymous", ""} and ambient_prompt)
+        ):
+            client_id, role_id = "codex", "background_lookup"
+        elif (
+            raw_l == "memory_writing_agent"
+            or (raw_l in {"codex", "default", "unknown", "anonymous", ""} and memory_prompt)
+        ):
+            client_id, role_id = "codex", "memory_writer"
+        elif raw_l in {"", "default", "unknown"}:
+            client_id, role_id = "unknown", "legacy"
+        elif raw_l == "anonymous":
+            client_id, role_id = "anonymous", "legacy"
+        elif ":" in raw:
+            raw_client, raw_role = raw.split(":", 1)
+            client_id = _slug(raw_client, "unknown")
+            role_id = _caller_role(raw_role, "chat")
+        else:
+            client_id = _slug(raw, "unknown")
+            role_id = "chat"
+
+    caller = f"{client_id}:{role_id}"
+    return {
+        "caller_id": caller,
+        "client": client_id,
+        "role": role_id,
+        "display_name": f"{_display_client(client_id)} / {_CALLER_ROLE_LABELS[role_id]}",
+    }
+
 def log_event(
     store: FluxStore,
     category: str,
@@ -181,6 +287,17 @@ def log_event(
     payload = dict(data or {})
     if caller_id is not None and "caller_id" not in payload:
         payload["caller_id"] = caller_id
+    if "caller_id" in payload or "caller_client" in payload or "caller_role" in payload:
+        identity = caller_identity(
+            payload.get("caller_id"),
+            payload.get("query"),
+            client=payload.get("caller_client"),
+            role=payload.get("caller_role"),
+        )
+        payload["caller_id"] = identity["caller_id"]
+        payload["caller_client"] = identity["client"]
+        payload["caller_role"] = identity["role"]
+        payload["caller_display_name"] = identity["display_name"]
     store.conn.execute(
         """
         INSERT INTO events (id, timestamp, category, event, trace_id, data)
@@ -305,20 +422,25 @@ def _event_payload(row: Any) -> dict[str, Any]:
 
 
 def normalize_caller_id(caller_id: str | None, query: str | None = None) -> str:
-    caller_id = str(caller_id or "unknown").strip() or "unknown"
-    query = str(query or "").strip().lower()
-
-    if caller_id in {"codex", "default", "unknown"}:
-        if "ambient suggestions" in query:
-            return "ambient_suggestions"
-        if "memory writing agent" in query:
-            return "memory_writing_agent"
-
-    return caller_id
+    return caller_identity(caller_id, query)["caller_id"]
 
 
 def _caller_id_from_payload(payload: dict[str, Any]) -> str:
-    return normalize_caller_id(payload.get("caller_id"), payload.get("query"))
+    return caller_identity(
+        payload.get("caller_id"),
+        payload.get("query"),
+        client=payload.get("caller_client"),
+        role=payload.get("caller_role"),
+    )["caller_id"]
+
+
+def _caller_identity_from_payload(payload: dict[str, Any]) -> dict[str, str]:
+    return caller_identity(
+        payload.get("caller_id"),
+        payload.get("query"),
+        client=payload.get("caller_client"),
+        role=payload.get("caller_role"),
+    )
 
 
 def _parse_event_timestamp(timestamp: str | None) -> datetime | None:
@@ -534,12 +656,16 @@ def _feedback_compliance_by_caller(
     for row in retrieval_rows:
         trace_id = row["trace_id"]
         payload = _event_payload(row)
-        caller_id = _caller_id_from_payload(payload)
+        identity = _caller_identity_from_payload(payload)
+        caller_id = identity["caller_id"]
         entry = stats.setdefault(caller_id, {
             "expected": 0.0,
             "received": 0.0,
             "missing": 0.0,
             "retrievals": 0.0,
+            "client": identity["client"],
+            "role": identity["role"],
+            "display_name": identity["display_name"],
         })
         entry["retrievals"] += 1
 
@@ -590,6 +716,9 @@ def _caller_feedback_summary(
         rate = float(item.get("rate", 1.0))
         summary.append({
             "caller_id": caller_id,
+            "client": item["client"],
+            "role": item["role"],
+            "display_name": item["display_name"],
             "rate": rate,
             "healthy": rate >= 0.80,
             "expected": item["expected"],

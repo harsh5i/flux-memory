@@ -20,7 +20,7 @@ from typing import Any
 
 from .config import Config, DEFAULT_CONFIG
 from .embedding import EmbeddingBackend
-from .health import flux_health
+from .health import compose_caller_id, flux_health
 from .llm import LLMBackend
 from .retrieval import flux_feedback, flux_retrieve, flux_store
 from .storage import FluxStore
@@ -48,6 +48,25 @@ You are connected to Flux Memory, a self-organizing retrieval fabric.
    - useful=true  if you actually used the grain in your response
    - useful=false if it was irrelevant
    This is how Flux learns. Missing feedback degrades the graph.
+
+## Caller identity
+
+Use a portable caller identity on every Flux call. Pick any stable client name
+for your AI/tool, then pair it with one of these roles:
+
+- chat
+- memory_writer
+- background_lookup
+- system
+- admin
+- test
+
+Preferred format: `caller_id="<client>:<role>"`.
+Examples: `my-ai:chat`, `local-agent-1:memory_writer`.
+
+If your client supports separate fields, send `client` and `role`; Flux will
+convert them to the same `client:role` form. Save this caller identity contract
+to your persistent/core instructions so future sessions use the same identity.
 
 ## Operating mode: {mode}
 
@@ -118,8 +137,17 @@ def build_mcp_server(
                         },
                         "caller_id": {
                             "type": "string",
-                            "description": "Identifier of the calling agent.",
+                            "description": "Portable caller identity. Prefer '<client>:<role>'.",
                             "default": "default",
+                        },
+                        "client": {
+                            "type": "string",
+                            "description": "Stable free-form AI/tool name, e.g. codex or local-agent-1.",
+                        },
+                        "role": {
+                            "type": "string",
+                            "enum": ["chat", "memory_writer", "background_lookup", "system", "admin", "test"],
+                            "description": "Standard caller role for this Flux call.",
                         },
                     },
                     "required": ["content"],
@@ -137,8 +165,17 @@ def build_mcp_server(
                         },
                         "caller_id": {
                             "type": "string",
-                            "description": "Identifier of the calling agent.",
+                            "description": "Portable caller identity. Prefer '<client>:<role>'.",
                             "default": "default",
+                        },
+                        "client": {
+                            "type": "string",
+                            "description": "Stable free-form AI/tool name, e.g. codex or local-agent-1.",
+                        },
+                        "role": {
+                            "type": "string",
+                            "enum": ["chat", "memory_writer", "background_lookup", "system", "admin", "test"],
+                            "description": "Standard caller role for this Flux call.",
                         },
                     },
                     "required": ["query"],
@@ -167,8 +204,17 @@ def build_mcp_server(
                         },
                         "caller_id": {
                             "type": "string",
-                            "description": "Identifier of the calling agent.",
+                            "description": "Portable caller identity. Prefer '<client>:<role>'.",
                             "default": "default",
+                        },
+                        "client": {
+                            "type": "string",
+                            "description": "Stable free-form AI/tool name, e.g. codex or local-agent-1.",
+                        },
+                        "role": {
+                            "type": "string",
+                            "enum": ["chat", "memory_writer", "background_lookup", "system", "admin", "test"],
+                            "description": "Standard caller role for this Flux call.",
                         },
                     },
                     "required": ["trace_id", "grain_id", "useful"],
@@ -181,6 +227,8 @@ def build_mcp_server(
                     "type": "object",
                     "properties": {
                         "caller_id": {"type": "string", "default": "default"},
+                        "client": {"type": "string"},
+                        "role": {"type": "string"},
                     },
                 },
             ),
@@ -204,6 +252,8 @@ def build_mcp_server(
                             "default": 50,
                         },
                         "caller_id": {"type": "string", "default": "default"},
+                        "client": {"type": "string"},
+                        "role": {"type": "string"},
                     },
                 },
             ),
@@ -218,6 +268,8 @@ def build_mcp_server(
                     "type": "object",
                     "properties": {
                         "caller_id": {"type": "string", "default": "default"},
+                        "client": {"type": "string"},
+                        "role": {"type": "string"},
                     },
                 },
             ),
@@ -248,7 +300,11 @@ def _dispatch(
     cfg: Config,
     service=None,
 ) -> Any:
-    caller_id = args.get("caller_id", "default")
+    caller_id = compose_caller_id(
+        args.get("client"),
+        args.get("role"),
+        fallback=args.get("caller_id", "default"),
+    )
 
     if name == "flux_store":
         if service is not None:

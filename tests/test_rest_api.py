@@ -149,6 +149,22 @@ class TestRetrieveEndpoint:
         )
         assert resp.status_code == 200
 
+    def test_retrieve_with_caller_client_and_role_headers(self, client):
+        client.post("/store", json={"content": "portable REST caller"})
+        resp = client.post(
+            "/retrieve",
+            json={"query": "portable REST caller"},
+            headers={
+                "X-Flux-Client": "local-agent-1",
+                "X-Flux-Role": "background_lookup",
+            },
+        )
+        assert resp.status_code == 200
+
+        health = client.get("/health").json()
+        callers = {c["caller_id"] for c in health["caller_feedback"]}
+        assert "local-agent-1:background_lookup" in callers
+
 
 # ---------------------------------------------------------------- /feedback
 

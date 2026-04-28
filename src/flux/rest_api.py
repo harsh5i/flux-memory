@@ -11,7 +11,7 @@ Endpoints:
   GET  /health             current health report
   GET  /grains             list grains, optional ?status= filter
 
-All requests accept an optional X-Caller-Id header for per-caller tracking.
+All requests accept caller attribution headers for per-caller tracking.
 
 Usage (programmatic):
     from flux.rest_api import build_app
@@ -25,11 +25,14 @@ import logging
 from typing import Any, List
 
 from .config import Config, DEFAULT_CONFIG
+from .health import compose_caller_id
 from .service import FluxService
 
 logger = logging.getLogger(__name__)
 
 _CALLER_HEADER = "X-Caller-Id"
+_CALLER_CLIENT_HEADER = "X-Flux-Client"
+_CALLER_ROLE_HEADER = "X-Flux-Role"
 _DEFAULT_CALLER = "anonymous"
 
 try:
@@ -76,7 +79,11 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     # ------------------------------------------------------------------
 
     def _caller(request: Request) -> str:
-        return request.headers.get(_CALLER_HEADER, _DEFAULT_CALLER)
+        return compose_caller_id(
+            request.headers.get(_CALLER_CLIENT_HEADER),
+            request.headers.get(_CALLER_ROLE_HEADER),
+            fallback=request.headers.get(_CALLER_HEADER, _DEFAULT_CALLER),
+        )
 
     # ------------------------------------------------------------------
     # Endpoints
