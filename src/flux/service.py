@@ -157,10 +157,10 @@ class FluxService:
 
     def retrieve(self, query: str, caller_id: str = "default") -> RetrievalResult:
         """Submit a retrieve to the read booth (blocking, returns result)."""
-        future = self._executor.submit(self._retrieve_worker, query)
+        future = self._executor.submit(self._retrieve_worker, query, caller_id)
         return future.result()
 
-    def _retrieve_worker(self, query: str) -> RetrievalResult:
+    def _retrieve_worker(self, query: str, caller_id: str) -> RetrievalResult:
         """Run one retrieve using a worker-local SQLite connection."""
         if self._store.db_path == ":memory:":
             return flux_retrieve(
@@ -169,6 +169,7 @@ class FluxService:
                 llm=self._llm,
                 emb=self._emb,
                 cfg=self._cfg,
+                caller_id=caller_id,
             )
 
         with FluxStore(self._store.db_path) as read_store:
@@ -178,6 +179,7 @@ class FluxService:
                 llm=self._llm,
                 emb=self._emb,
                 cfg=self._cfg,
+                caller_id=caller_id,
             )
 
     def store(self, content: str, provenance: str = "ai_stated",
@@ -229,7 +231,8 @@ class FluxService:
                       caller_id: str = "default") -> FeedbackResult:
         """Apply feedback synchronously (for SDK callers that want the result)."""
         return flux_feedback(trace_id, grain_id, useful,
-                             store=self._store, cfg=self._cfg)
+                             store=self._store, cfg=self._cfg,
+                             caller_id=caller_id)
 
     def health(self) -> dict:
         from .health import flux_health
@@ -278,6 +281,7 @@ class FluxService:
                     llm=self._llm,
                     emb=self._emb,
                     cfg=self._cfg,
+                    caller_id=item.caller_id,
                 )
                 item.result_future.put(gid)
             except Exception as exc:
@@ -292,6 +296,7 @@ class FluxService:
                 flux_feedback(
                     item.trace_id, item.grain_id, item.useful,
                     store=self._store, cfg=self._cfg,
+                    caller_id=item.caller_id,
                 )
             except Exception as exc:
                 logger.error("feedback worker error: %s", exc)

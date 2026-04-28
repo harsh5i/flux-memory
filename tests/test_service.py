@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import queue
 import threading
 import time
@@ -148,6 +149,19 @@ class TestFluxServiceRetrieve:
         result = svc.retrieve("anything", caller_id="test")
         assert result.grains == []
 
+    def test_retrieve_records_caller_id(self, svc, store):
+        svc.retrieve("anything", caller_id="agent-retrieve")
+
+        row = store.conn.execute(
+            """
+            SELECT data FROM events
+            WHERE category='retrieval' AND event='grains_returned'
+            ORDER BY timestamp DESC LIMIT 1
+            """
+        ).fetchone()
+
+        assert json.loads(row["data"])["caller_id"] == "agent-retrieve"
+
 
 # ---------------------------------------------------------------- feedback
 
@@ -166,6 +180,28 @@ class TestFluxServiceFeedback:
             fb = svc.feedback_sync(result.trace_id, result.grains[0]["id"], True)
             assert hasattr(fb, "trace_id")
             assert hasattr(fb, "action")
+
+    def test_feedback_sync_records_caller_id(self, svc, store):
+        svc.store("test fact", caller_id="test")
+        result = svc.retrieve("test fact", caller_id="test")
+        if not result.grains:
+            pytest.skip("No grains retrieved")
+
+        svc.feedback_sync(
+            result.trace_id,
+            result.grains[0]["id"],
+            True,
+            caller_id="agent-feedback",
+        )
+        row = store.conn.execute(
+            """
+            SELECT data FROM events
+            WHERE category='feedback' AND event='feedback_received'
+            ORDER BY timestamp DESC LIMIT 1
+            """
+        ).fetchone()
+
+        assert json.loads(row["data"])["caller_id"] == "agent-feedback"
 
 
 # ---------------------------------------------------------------- health and list

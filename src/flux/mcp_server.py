@@ -260,6 +260,7 @@ def _dispatch(
             grain_id = flux_store(
                 args["content"], args.get("provenance", "ai_stated"),
                 store=store, llm=llm, emb=emb, cfg=cfg,
+                caller_id=caller_id,
             )
         return {"grain_id": grain_id, "status": "stored"}
 
@@ -267,7 +268,14 @@ def _dispatch(
         if service is not None:
             result = service.retrieve(args["query"], caller_id=caller_id)
         else:
-            result = flux_retrieve(args["query"], store=store, llm=llm, emb=emb, cfg=cfg)
+            result = flux_retrieve(
+                args["query"],
+                store=store,
+                llm=llm,
+                emb=emb,
+                cfg=cfg,
+                caller_id=caller_id,
+            )
         return {
             "grains": result.grains,
             "trace_id": result.trace_id,
@@ -286,6 +294,7 @@ def _dispatch(
         result = flux_feedback(
             args["trace_id"], args["grain_id"], args["useful"],
             store=store, cfg=cfg,
+            caller_id=caller_id,
         )
         return {
             "trace_id": result.trace_id,

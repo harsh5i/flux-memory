@@ -132,6 +132,39 @@ class TestComputeEventSignals:
         sigs = _compute_event_signals(store, _now())
         assert sigs["feedback_compliance_rate"] == 1.0
 
+    def test_feedback_compliance_requires_feedback_per_returned_grain(self, store):
+        now = _now()
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "trace_id": "trace-1",
+                "grain_ids": ["g1", "g2"],
+                "grains_count": 2,
+                "caller_id": "codex",
+            },
+            trace_id="trace-1",
+            now=now,
+        )
+        log_event(
+            store,
+            "feedback",
+            "feedback_received",
+            {
+                "trace_id": "trace-1",
+                "grain_id": "g1",
+                "useful": True,
+                "caller_id": "codex",
+            },
+            trace_id="trace-1",
+            now=now,
+        )
+
+        sigs = _compute_event_signals(store, now)
+
+        assert sigs["feedback_compliance_rate"] == pytest.approx(0.5)
+
     def test_retrieval_success_rate_from_events(self, store):
         now = _now()
         # 5 retrievals, 3 marked successful
@@ -294,3 +327,55 @@ class TestFluxHealth:
         # Check no cleared warning is in active_warnings
         for w in result2["active_warnings"]:
             assert w["signal"] != "avg_conduit_weight", "Warning should be cleared"
+
+    def test_cleared_warning_can_become_active_again(self, store):
+        """A recovered signal can become unhealthy again without violating signal uniqueness."""
+        now = _now() + timedelta(days=8)
+        g1 = _grain(); g2 = _grain()
+        store.insert_grain(g1); store.insert_grain(g2)
+        for _ in range(110):
+            log_event(store, "retrieval", "grains_returned", {})
+
+        c = Conduit(from_id=g1.id, to_id=g2.id, weight=0.01)
+        store.insert_conduit(c)
+        flux_health(store, now=now)
+
+        store.conn.execute("UPDATE conduits SET weight=0.40 WHERE id=?", (c.id,))
+        flux_health(store, now=now)
+
+        store.conn.execute("UPDATE conduits SET weight=0.01 WHERE id=?", (c.id,))
+        result = flux_health(store, now=now)
+
+        assert any(
+            w["signal"] == "avg_conduit_weight"
+            for w in result["active_warnings"]
+        )
+
+    def test_feedback_compliance_warning_identifies_caller(self, store):
+        now = _now()
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "trace_id": "trace-ambient",
+                "grain_ids": ["g1"],
+                "grains_count": 1,
+                "caller_id": "ambient_suggestions",
+            },
+            trace_id="trace-ambient",
+            now=now,
+        )
+
+        result = flux_health(store, now=now)
+
+        warning = next(
+            (
+                w for w in result["active_warnings"]
+                if w["signal"] == "feedback_compliance_rate:ambient_suggestions"
+            ),
+            None,
+        )
+        assert warning is not None
+        assert warning["current_value"] == pytest.approx(0.0)
+        assert "1 missing" in warning["suggestion"]

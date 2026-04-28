@@ -139,7 +139,7 @@ _HEALTHY_RANGES: dict[str, dict] = {
         "max": None,
         "warmup_retrievals": 0,  # no warmup; compliance should be high from day 1
         "severity": "WARNING",
-        "suggestion": "Main AI is not calling flux_feedback reliably. Prompt engineering issue.",
+        "suggestion": "One or more callers are not calling flux_feedback once per returned grain.",
     },
     "core_grain_count": {
         "window": "long",
@@ -169,6 +169,7 @@ def log_event(
     data: dict[str, Any] | None = None,
     trace_id: str | None = None,
     now: datetime | None = None,
+    caller_id: str | None = None,
 ) -> None:
     """Emit a structured event to the events table (§11.5).
 
@@ -177,6 +178,9 @@ def log_event(
     """
     now = now or utcnow()
     event_id = new_id()
+    payload = dict(data or {})
+    if caller_id is not None and "caller_id" not in payload:
+        payload["caller_id"] = caller_id
     store.conn.execute(
         """
         INSERT INTO events (id, timestamp, category, event, trace_id, data)
@@ -188,10 +192,10 @@ def log_event(
             category,
             event,
             trace_id,
-            json.dumps(data or {}),
+            json.dumps(payload),
         ),
     )
-    logger.debug("flux event %s/%s %s", category, event, data)
+    logger.debug("flux event %s/%s %s", category, event, payload)
 
 
 def setup_file_logger(log_dir: str | Path, level: int = logging.INFO) -> None:
@@ -291,6 +295,144 @@ def _compute_graph_signals(store: FluxStore) -> dict[str, float]:
     signals["dormant_grain_rate"] = dormant_n / denom if denom > 0 else 0.0
 
     return signals
+
+
+def _event_payload(row: Any) -> dict[str, Any]:
+    try:
+        return json.loads(row["data"] or "{}")
+    except Exception:
+        return {}
+
+
+def _caller_id_from_payload(payload: dict[str, Any]) -> str:
+    caller_id = payload.get("caller_id") or "unknown"
+    return str(caller_id).strip() or "unknown"
+
+
+def _expected_feedback_count(payload: dict[str, Any], has_trace_id: bool) -> int:
+    grain_ids = payload.get("grain_ids")
+    if isinstance(grain_ids, list):
+        return len([gid for gid in grain_ids if gid])
+
+    for key in ("grains_count", "count"):
+        value = payload.get(key)
+        if value is None:
+            continue
+        try:
+            return max(int(value), 0)
+        except (TypeError, ValueError):
+            continue
+
+    # Legacy traced retrieval events predate grain_ids/grains_count. Count them
+    # as one expected feedback item so old clients still affect compliance.
+    return 1 if has_trace_id else 0
+
+
+def _feedback_compliance_by_caller(
+    store: FluxStore,
+    cutoff: str,
+) -> dict[str, dict[str, float]]:
+    retrieval_rows = store.conn.execute(
+        """
+        SELECT trace_id, data
+        FROM events
+        WHERE category='retrieval'
+          AND event='grains_returned'
+          AND timestamp>=?
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    feedback_rows = store.conn.execute(
+        """
+        SELECT trace_id, data
+        FROM events
+        WHERE category='feedback'
+          AND event='feedback_received'
+          AND timestamp>=?
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    feedback_by_trace: dict[str, dict[str, Any]] = {}
+    untraced_feedback_count = 0
+    for row in feedback_rows:
+        trace_id = row["trace_id"]
+        if not trace_id:
+            untraced_feedback_count += 1
+            continue
+        payload = _event_payload(row)
+        entry = feedback_by_trace.setdefault(trace_id, {
+            "grain_ids": set(),
+            "anonymous_count": 0,
+        })
+        grain_id = payload.get("grain_id")
+        if grain_id:
+            entry["grain_ids"].add(str(grain_id))
+        else:
+            entry["anonymous_count"] += 1
+
+    stats: dict[str, dict[str, float]] = {}
+    for row in retrieval_rows:
+        trace_id = row["trace_id"]
+        payload = _event_payload(row)
+        caller_id = _caller_id_from_payload(payload)
+        entry = stats.setdefault(caller_id, {
+            "expected": 0.0,
+            "received": 0.0,
+            "missing": 0.0,
+            "retrievals": 0.0,
+        })
+        entry["retrievals"] += 1
+
+        expected = _expected_feedback_count(payload, has_trace_id=bool(trace_id))
+        if expected <= 0:
+            continue
+
+        if not trace_id:
+            received = min(untraced_feedback_count, expected)
+            untraced_feedback_count = max(untraced_feedback_count - expected, 0)
+        else:
+            received_payload = feedback_by_trace.get(trace_id, {
+                "grain_ids": set(),
+                "anonymous_count": 0,
+            })
+            returned_grain_ids = payload.get("grain_ids")
+            if isinstance(returned_grain_ids, list):
+                returned = {str(gid) for gid in returned_grain_ids if gid}
+                matched = len(returned & received_payload["grain_ids"])
+                received = matched + min(
+                    int(received_payload["anonymous_count"]),
+                    max(expected - matched, 0),
+                )
+            else:
+                received = (
+                    len(received_payload["grain_ids"])
+                    + int(received_payload["anonymous_count"])
+                )
+            received = min(received, expected)
+
+        entry["expected"] += expected
+        entry["received"] += received
+        entry["missing"] += max(expected - received, 0)
+
+    for entry in stats.values():
+        expected = entry["expected"]
+        entry["rate"] = (entry["received"] / expected) if expected > 0 else 1.0
+
+    return stats
+
+
+def _feedback_compliance_rate(
+    store: FluxStore,
+    cutoff: str,
+) -> float:
+    stats = _feedback_compliance_by_caller(store, cutoff)
+    expected = sum(item["expected"] for item in stats.values())
+    if expected <= 0:
+        return 1.0
+    received = sum(item["received"] for item in stats.values())
+    return min(received / expected, 1.0)
 
 
 def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
@@ -435,9 +577,8 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
     fallbacks = _count("retrieval", "fallback_triggered", cutoff_short)
     signals["fallback_trigger_rate"] = fallbacks / ret_total if ret_total > 0 else 0.0
 
-    # Feedback compliance: % of retrievals followed by at least one feedback call.
-    feedback_calls = _count("feedback", "feedback_received", cutoff_short)
-    signals["feedback_compliance_rate"] = min(feedback_calls / ret_total, 1.0) if ret_total > 0 else 1.0
+    # Feedback compliance: % of returned grains that received feedback.
+    signals["feedback_compliance_rate"] = _feedback_compliance_rate(store, cutoff_short)
 
     return signals
 
@@ -491,14 +632,19 @@ def _upsert_warning(
     now: datetime,
 ) -> None:
     existing = store.conn.execute(
-        "SELECT id FROM warnings WHERE signal = ? AND cleared_at IS NULL",
+        "SELECT id FROM warnings WHERE signal = ?",
         (signal,),
     ).fetchone()
     ts = now.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
     if existing:
         store.conn.execute(
-            "UPDATE warnings SET current_value=?, severity=?, last_seen=? WHERE id=?",
-            (value, severity, ts, existing["id"]),
+            """
+            UPDATE warnings
+            SET current_value=?, severity=?, healthy_range=?, last_seen=?,
+                suggestion=?, cleared_at=NULL
+            WHERE id=?
+            """,
+            (value, severity, healthy_range, ts, suggestion, existing["id"]),
         )
     else:
         store.conn.execute(
@@ -535,6 +681,49 @@ def _get_active_warnings(store: FluxStore) -> list[dict]:
             "suggestion": r["suggestion"],
         })
     return result
+
+
+def _sync_feedback_caller_warnings(store: FluxStore, now: datetime) -> None:
+    cutoff = (now - timedelta(hours=24.0)).strftime("%Y-%m-%dT%H:%M:%S")
+    stats = _feedback_compliance_by_caller(store, cutoff)
+    prefix = "feedback_compliance_rate:"
+    seen_signals: set[str] = set()
+
+    for caller_id, item in stats.items():
+        if item["expected"] <= 0:
+            continue
+        signal = f"{prefix}{caller_id}"
+        seen_signals.add(signal)
+        rate = float(item["rate"])
+        missing = int(item["missing"])
+        if rate < 0.80:
+            retrievals = int(item["retrievals"])
+            _upsert_warning(
+                store,
+                signal=signal,
+                value=rate,
+                severity="WARNING",
+                healthy_range=">= 0.8",
+                suggestion=(
+                    f"{caller_id}: {missing} missing feedback item(s) across "
+                    f"{retrievals} retrieval(s). Call flux_feedback once for "
+                    "every returned grain."
+                ),
+                now=now,
+            )
+        else:
+            _clear_warning(store, signal, now)
+
+    existing = store.conn.execute(
+        """
+        SELECT signal FROM warnings
+        WHERE signal LIKE ? AND cleared_at IS NULL
+        """,
+        (f"{prefix}%",),
+    ).fetchall()
+    for row in existing:
+        if row["signal"] not in seen_signals:
+            _clear_warning(store, row["signal"], now)
 
 
 def _overall_status(warnings: list[dict]) -> str:
@@ -582,6 +771,8 @@ def flux_health(
             )
         else:
             _clear_warning(store, name, now)
+
+    _sync_feedback_caller_warnings(store, now)
 
     active_warnings = _get_active_warnings(store)
     status = _overall_status(active_warnings)

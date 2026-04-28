@@ -70,6 +70,7 @@ def flux_store(
     emb: EmbeddingBackend | None = None,
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
+    caller_id: str = "default",
 ) -> str:
     """Insert a single grain into the store and create bootstrap conduits.
 
@@ -121,7 +122,7 @@ def flux_store(
         "provenance": provenance,
         "content_len": len(content),
         "via": "flux_store_direct",
-    }, now=now)
+    }, now=now, caller_id=caller_id)
     return grain.id
 
 
@@ -135,6 +136,7 @@ def flux_retrieve(
     emb: EmbeddingBackend,
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
+    caller_id: str = "default",
 ) -> RetrievalResult:
     """Retrieve the top-k grains most relevant to query.
 
@@ -169,7 +171,7 @@ def flux_retrieve(
         log_event(store, "retrieval", "fallback_triggered", {
             "query": query[:200],
             "confidence": confidence,
-        }, now=now)
+        }, now=now, caller_id=caller_id)
 
     # Recompute hop_count from trace.
     hop_count = max((step.hop for step in result.trace), default=0)
@@ -201,17 +203,7 @@ def flux_retrieve(
             "trace_id": trace.id,
             "candidates": len(expansion_candidates),
             "confidence": confidence,
-        }, trace_id=trace.id, now=now)
-
-    log_event(store, "retrieval", "grains_returned", {
-        "query": query[:200],
-        "features": features,
-        "grains_count": len(result.activated),
-        "hop_count": hop_count,
-        "fallback_triggered": fallback_triggered,
-        "expansion_count": len(expansion_candidates),
-        "trace_id": trace.id,
-    }, trace_id=trace.id, now=now)
+        }, trace_id=trace.id, now=now, caller_id=caller_id)
 
     # 6. Build response.
     grains_out = []
@@ -227,6 +219,17 @@ def flux_retrieve(
             "score": score,
             "source": "propagation",
         })
+
+    log_event(store, "retrieval", "grains_returned", {
+        "query": query[:200],
+        "features": features,
+        "grain_ids": [g["id"] for g in grains_out],
+        "grains_count": len(grains_out),
+        "hop_count": hop_count,
+        "fallback_triggered": fallback_triggered,
+        "expansion_count": len(expansion_candidates),
+        "trace_id": trace.id,
+    }, trace_id=trace.id, now=now, caller_id=caller_id)
 
     return RetrievalResult(
         grains=grains_out,
@@ -249,6 +252,7 @@ def flux_feedback(
     store: FluxStore,
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
+    caller_id: str = "default",
 ) -> FeedbackResult:
     """Apply multi-signal feedback for one grain from a retrieval trace (§7.1).
 
@@ -297,10 +301,18 @@ def flux_feedback(
         "provenance": grain.provenance,
         "usefulness_ratio": round(usefulness_ratio, 4),
         "action": action,
-    }, trace_id=trace_id, now=now)
+    }, trace_id=trace_id, now=now, caller_id=caller_id)
 
     if useful:
-        log_event(store, "feedback", "retrieval_successful", {}, trace_id=trace_id, now=now)
+        log_event(
+            store,
+            "feedback",
+            "retrieval_successful",
+            {},
+            trace_id=trace_id,
+            now=now,
+            caller_id=caller_id,
+        )
 
     return FeedbackResult(
         trace_id=trace_id,
