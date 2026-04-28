@@ -208,6 +208,9 @@ Instance config lives at `~/.flux/<name>/config.yaml`. Key parameters:
 | `MAX_GRAINS_PER_CALL` | `100` | Batch ingestion cap |
 | `MAX_GRAINS_PER_MINUTE` | `500` | Per-caller rate limit |
 | `MAX_WRITE_QUEUE_DEPTH` | `1000` | Write queue backpressure cap |
+| `FEEDBACK_ENFORCEMENT_ENABLED` | `true` | Require callers to submit feedback before repeated retrieval |
+| `FEEDBACK_ENFORCEMENT_GRACE_SECONDS` | `60` | Delay before missing feedback blocks the same caller |
+| `FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS` | `86400` | Maximum time a stale missing-feedback item can block retrieval |
 | `LLM_MODEL` | `llama3.1:8b` | Ollama model (flux_extracts mode) |
 
 ## Admin

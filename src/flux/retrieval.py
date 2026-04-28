@@ -59,6 +59,44 @@ class FeedbackResult:
     action: str                 # "reinforced" | "penalized" | "skipped"
 
 
+class FeedbackRequiredError(RuntimeError):
+    """Recoverable retrieval block caused by missing feedback."""
+
+    recoverable = True
+
+    def __init__(
+        self,
+        *,
+        caller_id: str,
+        pending: dict[str, Any],
+        max_block_seconds: float | None,
+    ) -> None:
+        self.caller_id = caller_id
+        self.missing = int(pending["missing"])
+        self.pending_traces = list(pending["pending_traces"])
+        self.pending_grain_ids = [
+            grain_id
+            for trace in self.pending_traces
+            for grain_id in trace.get("pending_grain_ids", [])
+        ]
+        trace_hints = []
+        for trace in self.pending_traces[:5]:
+            grain_ids = trace.get("pending_grain_ids", [])[:5]
+            grain_hint = f" grain_id(s)={','.join(grain_ids)}" if grain_ids else ""
+            trace_hints.append(f"{trace['trace_id']}{grain_hint}")
+        expiry = (
+            f" Stale blocks expire after {max_block_seconds:g}s."
+            if max_block_seconds is not None
+            else ""
+        )
+        super().__init__(
+            "flux_feedback required before next retrieval for caller "
+            f"'{caller_id}': {self.missing} pending feedback item(s). "
+            "Recover by calling flux_feedback for: "
+            f"{'; '.join(trace_hints)}.{expiry}"
+        )
+
+
 # ----------------------------------------------------------------- write channel
 
 def flux_store(
@@ -157,24 +195,34 @@ def flux_retrieve(
             caller_id,
             now,
             grace_seconds=cfg.FEEDBACK_ENFORCEMENT_GRACE_SECONDS,
+            max_block_seconds=cfg.FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS,
             lookback_days=cfg.TRACE_RETENTION_DAYS,
         )
         if pending["missing"] > 0:
+            pending_grain_ids = [
+                grain_id
+                for trace in pending["pending_traces"]
+                for grain_id in trace.get("pending_grain_ids", [])
+            ]
             log_event(
                 store,
                 "feedback",
                 "feedback_required_blocked",
                 {
                     "caller_id": caller_id,
+                    "recoverable": True,
                     "missing": pending["missing"],
                     "pending_traces": pending["pending_traces"][:5],
+                    "pending_grain_ids": pending_grain_ids[:25],
+                    "max_block_seconds": cfg.FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS,
                 },
                 now=now,
                 caller_id=caller_id,
             )
-            raise RuntimeError(
-                "flux_feedback required before next retrieval for caller "
-                f"'{caller_id}': {pending['missing']} pending feedback item(s)."
+            raise FeedbackRequiredError(
+                caller_id=caller_id,
+                pending=pending,
+                max_block_seconds=cfg.FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS,
             )
 
     # 1. Query decomposition → entry IDs + features.

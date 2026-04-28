@@ -415,6 +415,7 @@ def pending_feedback_for_caller(
     now: datetime | None = None,
     *,
     grace_seconds: float = 60.0,
+    max_block_seconds: float | None = None,
     lookback_days: int = 30,
 ) -> dict[str, Any]:
     now = now or utcnow()
@@ -448,7 +449,10 @@ def pending_feedback_for_caller(
         event_time = _parse_event_timestamp(row["timestamp"])
         if event_time is None:
             continue
-        if (now - event_time).total_seconds() < grace_seconds:
+        age_seconds = (now - event_time).total_seconds()
+        if age_seconds < grace_seconds:
+            continue
+        if max_block_seconds is not None and age_seconds > max_block_seconds:
             continue
 
         expected = _expected_feedback_count(payload, has_trace_id=True)
@@ -464,6 +468,17 @@ def pending_feedback_for_caller(
         if missing <= 0:
             continue
 
+        grain_ids = [
+            str(gid)
+            for gid in payload.get("grain_ids", [])
+            if gid
+        ] if isinstance(payload.get("grain_ids"), list) else []
+        received_grain_ids = received_payload["grain_ids"]
+        pending_grain_ids = [
+            gid for gid in grain_ids
+            if gid not in received_grain_ids
+        ][:missing]
+
         expected_total += expected
         received_total += received
         pending_traces.append({
@@ -471,7 +486,9 @@ def pending_feedback_for_caller(
             "expected": expected,
             "received": received,
             "missing": missing,
-            "age_seconds": round((now - event_time).total_seconds(), 3),
+            "age_seconds": round(age_seconds, 3),
+            "grain_ids": grain_ids,
+            "pending_grain_ids": pending_grain_ids,
         })
 
     missing_total = sum(item["missing"] for item in pending_traces)

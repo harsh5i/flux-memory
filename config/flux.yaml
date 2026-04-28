@@ -94,6 +94,11 @@ ADMIN_REST_PORT: 7463
 DASHBOARD_HOST: 127.0.0.1
 DASHBOARD_PORT: 7462
 
+# --- Feedback enforcement ---
+FEEDBACK_ENFORCEMENT_ENABLED: true
+FEEDBACK_ENFORCEMENT_GRACE_SECONDS: 60.0
+FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS: 86400.0
+
 # --- LLM backend (not in spec §5; implementation-specific) ---
 # LLM_BASE_URL: http://localhost:11434   # Ollama API base URL
 # LLM_MODEL: llama3.1:8b

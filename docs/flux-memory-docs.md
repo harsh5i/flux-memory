@@ -684,6 +684,9 @@ All tunable constants in one place:
 | `CLUSTER_DISSOLVE_DECAY` | 0.5 | Touch weight carryover rate when an old cluster has no strong successor | Preserves some continuity rather than losing evidence entirely. |
 | `TRACE_RETENTION_COUNT` | 10000 | Most recent traces kept in hot storage | Higher = more historical data for health metrics. Lower = less storage. |
 | `TRACE_RETENTION_DAYS` | 30 | Days of traces kept in hot storage | Whichever of count or days is larger wins. |
+| `FEEDBACK_ENFORCEMENT_ENABLED` | true | Require callers to close retrievals with feedback before repeated retrieval | Keeps learning signals complete instead of silently accepting missing feedback. |
+| `FEEDBACK_ENFORCEMENT_GRACE_SECONDS` | 60 | Seconds before missing feedback can block the same caller | Gives clients time to respond and then submit `flux_feedback`. |
+| `FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS` | 86400 | Maximum age of missing feedback that can block retrieval | Prevents a stale missed feedback item from wedging a caller forever. |
 | `EXPANSION_CONFIDENCE_THRESHOLD` | 0.4 | Signal strength below which query-time context expansion fires | Lower = expansion rarely fires. Higher = expansion more aggressive. |
 | `EXPANSION_CANDIDATES_PER_CLUSTER` | 2 | Max lateral candidates surfaced per shared cluster | Higher = more candidates, more noise. |
 | `EXPANSION_MAX_CANDIDATES` | 3 | Hard cap on total lateral candidates per retrieval | Upper bound on added context. |

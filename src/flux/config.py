@@ -130,6 +130,7 @@ class Config:
     # --- Feedback enforcement ---
     FEEDBACK_ENFORCEMENT_ENABLED: bool = True
     FEEDBACK_ENFORCEMENT_GRACE_SECONDS: float = 60.0
+    FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS: float = 86_400.0
 
     # --- Admin authentication (§1A.8) ---
     ADMIN_LOCKOUT_MINUTES: int = 15

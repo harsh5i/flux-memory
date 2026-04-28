@@ -162,6 +162,81 @@ class TestFluxRetrieve:
                 caller_id="agent-a",
             )
 
+    def test_pending_feedback_error_is_recoverable_and_actionable(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        cfg = Config(FEEDBACK_ENFORCEMENT_GRACE_SECONDS=0)
+        old = _now() - timedelta(seconds=1)
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "grain_ids": ["g1", "g2"],
+                "grains_count": 2,
+                "caller_id": "agent-a",
+            },
+            trace_id="trace-pending",
+            now=old,
+        )
+
+        with pytest.raises(RuntimeError) as excinfo:
+            flux_retrieve(
+                "next query",
+                store=store,
+                llm=llm,
+                emb=emb,
+                cfg=cfg,
+                caller_id="agent-a",
+            )
+
+        err = excinfo.value
+        assert getattr(err, "recoverable", False) is True
+        assert getattr(err, "caller_id", None) == "agent-a"
+        assert getattr(err, "missing", None) == 2
+        assert getattr(err, "pending_traces", None) == [
+            {
+                "trace_id": "trace-pending",
+                "expected": 2,
+                "received": 0,
+                "missing": 2,
+                "age_seconds": pytest.approx(1, abs=0.1),
+                "grain_ids": ["g1", "g2"],
+                "pending_grain_ids": ["g1", "g2"],
+            }
+        ]
+        assert "trace-pending" in str(err)
+        assert "g1" in str(err)
+        assert "flux_feedback" in str(err)
+
+    def test_very_old_missing_feedback_does_not_block_forever(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        cfg = Config(
+            FEEDBACK_ENFORCEMENT_GRACE_SECONDS=0,
+            FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS=10,
+        )
+        old = _now() - timedelta(seconds=20)
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {"grain_ids": ["g1"], "grains_count": 1, "caller_id": "agent-a"},
+            trace_id="trace-stale",
+            now=old,
+        )
+
+        result = flux_retrieve(
+            "next query",
+            store=store,
+            llm=llm,
+            emb=emb,
+            cfg=cfg,
+            caller_id="agent-a",
+        )
+
+        assert isinstance(result, RetrievalResult)
+
     def test_pending_feedback_does_not_block_other_callers(self, store):
         llm = MockLLMBackend()
         emb = MockEmbeddingBackend()

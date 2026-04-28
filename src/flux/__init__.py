@@ -31,7 +31,14 @@ from .embedding import (
     vector_fallback,
 )
 from .extraction import decompose_query, extract_and_store_grains
-from .retrieval import RetrievalResult, FeedbackResult, flux_retrieve, flux_feedback, flux_store
+from .retrieval import (
+    FeedbackRequiredError,
+    RetrievalResult,
+    FeedbackResult,
+    flux_retrieve,
+    flux_feedback,
+    flux_store,
+)
 from .visualization import export_graphml, export_json, export_dot, subgraph, cluster_view
 from .ops import ConfigWatcher, GracefulShutdown, backup, restore
 from .expansion import expand_results
@@ -66,6 +73,7 @@ __all__ = [
     "extract_and_store_grains",
     "ConfigWatcher",
     "ContextShiftDetector",
+    "FeedbackRequiredError",
     "FeedbackResult",
     "GracefulShutdown",
     "RetrievalResult",
