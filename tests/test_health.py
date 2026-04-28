@@ -384,3 +384,25 @@ class TestFluxHealth:
             w["signal"] == "feedback_compliance_rate:ambient_suggestions"
             for w in result["active_warnings"]
         )
+
+    def test_feedback_compliance_reclassifies_ambient_codex_prompt(self, store):
+        now = _now()
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "query": "Generate 0 to 3 ambient suggestions for this local project",
+                "grain_ids": ["g1"],
+                "grains_count": 1,
+                "caller_id": "codex",
+            },
+            trace_id="trace-ambient-codex",
+            now=now,
+        )
+
+        result = flux_health(store, now=now)
+        callers = {c["caller_id"] for c in result["caller_feedback"]}
+
+        assert "ambient_suggestions" in callers
+        assert "codex" not in callers

@@ -305,8 +305,16 @@ def _event_payload(row: Any) -> dict[str, Any]:
 
 
 def _caller_id_from_payload(payload: dict[str, Any]) -> str:
-    caller_id = payload.get("caller_id") or "unknown"
-    return str(caller_id).strip() or "unknown"
+    caller_id = str(payload.get("caller_id") or "unknown").strip() or "unknown"
+    query = str(payload.get("query") or "").strip().lower()
+
+    if caller_id in {"codex", "default", "unknown"}:
+        if query.startswith("generate 0 to 3 ambient suggestions"):
+            return "ambient_suggestions"
+        if "memory writing agent" in query:
+            return "memory_writing_agent"
+
+    return caller_id
 
 
 def _expected_feedback_count(payload: dict[str, Any], has_trace_id: bool) -> int:
