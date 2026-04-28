@@ -435,6 +435,26 @@ def _feedback_compliance_rate(
     return min(received / expected, 1.0)
 
 
+def _caller_feedback_summary(
+    store: FluxStore,
+    cutoff: str,
+) -> list[dict[str, Any]]:
+    stats = _feedback_compliance_by_caller(store, cutoff)
+    summary = []
+    for caller_id, item in stats.items():
+        rate = float(item.get("rate", 1.0))
+        summary.append({
+            "caller_id": caller_id,
+            "rate": rate,
+            "healthy": rate >= 0.80,
+            "expected": item["expected"],
+            "received": item["received"],
+            "missing": item["missing"],
+            "retrievals": item["retrievals"],
+        })
+    return sorted(summary, key=lambda c: (c["healthy"], c["rate"], c["caller_id"]))
+
+
 def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
     """Signals derived from the event log."""
     signals: dict[str, float] = {}
@@ -684,36 +704,13 @@ def _get_active_warnings(store: FluxStore) -> list[dict]:
 
 
 def _sync_feedback_caller_warnings(store: FluxStore, now: datetime) -> None:
-    cutoff = (now - timedelta(hours=24.0)).strftime("%Y-%m-%dT%H:%M:%S")
-    stats = _feedback_compliance_by_caller(store, cutoff)
+    """Clear legacy per-caller warning rows.
+
+    Caller attribution is returned in the health payload as ``caller_feedback``.
+    Keeping each caller as a normal active warning floods the warning count and
+    makes the dashboard look worse without adding diagnostic value.
+    """
     prefix = "feedback_compliance_rate:"
-    seen_signals: set[str] = set()
-
-    for caller_id, item in stats.items():
-        if item["expected"] <= 0:
-            continue
-        signal = f"{prefix}{caller_id}"
-        seen_signals.add(signal)
-        rate = float(item["rate"])
-        missing = int(item["missing"])
-        if rate < 0.80:
-            retrievals = int(item["retrievals"])
-            _upsert_warning(
-                store,
-                signal=signal,
-                value=rate,
-                severity="WARNING",
-                healthy_range=">= 0.8",
-                suggestion=(
-                    f"{caller_id}: {missing} missing feedback item(s) across "
-                    f"{retrievals} retrieval(s). Call flux_feedback once for "
-                    "every returned grain."
-                ),
-                now=now,
-            )
-        else:
-            _clear_warning(store, signal, now)
-
     existing = store.conn.execute(
         """
         SELECT signal FROM warnings
@@ -722,8 +719,7 @@ def _sync_feedback_caller_warnings(store: FluxStore, now: datetime) -> None:
         (f"{prefix}%",),
     ).fetchall()
     for row in existing:
-        if row["signal"] not in seen_signals:
-            _clear_warning(store, row["signal"], now)
+        _clear_warning(store, row["signal"], now)
 
 
 def _overall_status(warnings: list[dict]) -> str:
@@ -752,6 +748,7 @@ def flux_health(
     graph_signals = _compute_graph_signals(store)
     event_signals = _compute_event_signals(store, now)
     all_signals = {**graph_signals, **event_signals}
+    cutoff_short = (now - timedelta(hours=24.0)).strftime("%Y-%m-%dT%H:%M:%S")
 
     signal_results: dict[str, dict] = {}
     for name, value in all_signals.items():
@@ -786,5 +783,6 @@ def flux_health(
         "status": status,
         "signals": signal_results,
         "active_warnings": active_warnings,
+        "caller_feedback": _caller_feedback_summary(store, cutoff_short),
         "computed_at": now.isoformat(),
     }

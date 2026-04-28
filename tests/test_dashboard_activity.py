@@ -42,3 +42,11 @@ def test_dashboard_refreshes_after_structural_graph_changes_only() -> None:
     assert "ev.event === 'graph_rebuild_completed'" in refresh_body
     assert "function scheduleGraphRefreshAfterEvent()" in html
     assert "}, 1200);" in html
+
+
+def test_dashboard_renders_caller_feedback_breakdown() -> None:
+    html = dashboard._DASHBOARD_HTML
+
+    assert "caller_feedback" in html
+    assert "Caller Compliance" in html
+    assert "caller-row" in html

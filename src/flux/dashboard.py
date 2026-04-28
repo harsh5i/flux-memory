@@ -254,6 +254,18 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
   .warning-signal { font-size: 11px; font-weight: 600; color: var(--amber); font-family: var(--font-mono); }
   .warning-msg { font-size: 11px; color: var(--text-muted); margin-top: 3px; line-height: 1.5; }
   .warning-val { font-size: 10px; color: var(--text-dim); margin-top: 4px; font-family: var(--font-mono); }
+  .caller-compliance { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .caller-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin-bottom: 6px; }
+  .caller-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center;
+    padding: 6px 8px; margin-bottom: 5px; border-radius: var(--radius);
+    background: var(--surface2); border: 1px solid var(--border);
+  }
+  .caller-row.bad { border-color: rgba(251,113,133,0.28); }
+  .caller-row.good { border-color: rgba(74,222,128,0.22); }
+  .caller-name { font-size: 11px; font-family: var(--font-mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .caller-meta { grid-column: 1 / -1; font-size: 10px; color: var(--text-dim); font-family: var(--font-mono); }
+  .caller-rate { font-size: 11px; font-family: var(--font-mono); font-weight: 700; }
 
   /* HEALTH TABLE */
   .health-group { margin-bottom: 10px; }
@@ -715,19 +727,34 @@ function renderHealth() {
   }
 
   // Warnings
-  const warns = h.active_warnings || [];
+  const warns = (h.active_warnings || []).filter(w => !String(w.signal || '').startsWith('feedback_compliance_rate:'));
+  const callerFeedback = (h.caller_feedback || []).filter(c => (Number(c.expected) || 0) > 0);
   document.getElementById('warn-count').textContent = warns.length;
   document.getElementById('warn-count').className = 'rpanel-count' + (warns.length ? ' warn' : '');
   const wl = document.getElementById('warnings-list');
-  if (!warns.length) {
+  if (!warns.length && !callerFeedback.length) {
     wl.innerHTML = '<div style="color:var(--text-dim);font-size:11px">No active warnings</div>';
   } else {
-    wl.innerHTML = warns.map(w => `
+    const warningHtml = warns.map(w => `
       <div class="warning-card">
         <div class="warning-signal">${esc(w.signal)}</div>
         <div class="warning-msg">${esc(w.suggestion)}</div>
         <div class="warning-val">Value: ${esc(w.current_value)} · Range: ${esc(w.healthy_range)} · Severity: ${esc(w.severity)}</div>
       </div>`).join('');
+    const callerHtml = callerFeedback.length ? `
+      <div class="caller-compliance">
+        <div class="caller-title">Caller Compliance</div>
+        ${callerFeedback.map(c => {
+          const rate = Number(c.rate) || 0;
+          const healthy = c.healthy === true || rate >= 0.8;
+          return `<div class="caller-row ${healthy ? 'good' : 'bad'}">
+            <div class="caller-name" title="${esc(c.caller_id)}">${esc(c.caller_id)}</div>
+            <div class="caller-rate" style="color:${healthy?'var(--green)':'var(--rose)'}">${pct(rate)}</div>
+            <div class="caller-meta">${esc(c.received)} / ${esc(c.expected)} feedback · ${esc(c.missing)} missing · ${esc(c.retrievals)} retrievals</div>
+          </div>`;
+        }).join('')}
+      </div>` : '';
+    wl.innerHTML = warningHtml + callerHtml;
   }
 
   // Health table

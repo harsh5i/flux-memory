@@ -351,7 +351,7 @@ class TestFluxHealth:
             for w in result["active_warnings"]
         )
 
-    def test_feedback_compliance_warning_identifies_caller(self, store):
+    def test_feedback_compliance_breakdown_identifies_caller_without_warning_flood(self, store):
         now = _now()
         log_event(
             store,
@@ -369,13 +369,18 @@ class TestFluxHealth:
 
         result = flux_health(store, now=now)
 
-        warning = next(
+        caller = next(
             (
-                w for w in result["active_warnings"]
-                if w["signal"] == "feedback_compliance_rate:ambient_suggestions"
+                c for c in result["caller_feedback"]
+                if c["caller_id"] == "ambient_suggestions"
             ),
             None,
         )
-        assert warning is not None
-        assert warning["current_value"] == pytest.approx(0.0)
-        assert "1 missing" in warning["suggestion"]
+        assert caller is not None
+        assert caller["rate"] == pytest.approx(0.0)
+        assert caller["missing"] == pytest.approx(1.0)
+        assert caller["healthy"] is False
+        assert not any(
+            w["signal"] == "feedback_compliance_rate:ambient_suggestions"
+            for w in result["active_warnings"]
+        )
