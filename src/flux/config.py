@@ -127,6 +127,10 @@ class Config:
     MAX_WRITE_QUEUE_DEPTH: int = 1000
     MAX_GRAINS_PER_MINUTE: int = 500
 
+    # --- Feedback enforcement ---
+    FEEDBACK_ENFORCEMENT_ENABLED: bool = True
+    FEEDBACK_ENFORCEMENT_GRACE_SECONDS: float = 60.0
+
     # --- Admin authentication (§1A.8) ---
     ADMIN_LOCKOUT_MINUTES: int = 15
     ADMIN_MAX_ATTEMPTS: int = 3

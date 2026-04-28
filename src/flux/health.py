@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -304,9 +304,9 @@ def _event_payload(row: Any) -> dict[str, Any]:
         return {}
 
 
-def _caller_id_from_payload(payload: dict[str, Any]) -> str:
-    caller_id = str(payload.get("caller_id") or "unknown").strip() or "unknown"
-    query = str(payload.get("query") or "").strip().lower()
+def normalize_caller_id(caller_id: str | None, query: str | None = None) -> str:
+    caller_id = str(caller_id or "unknown").strip() or "unknown"
+    query = str(query or "").strip().lower()
 
     if caller_id in {"codex", "default", "unknown"}:
         if "ambient suggestions" in query:
@@ -315,6 +315,24 @@ def _caller_id_from_payload(payload: dict[str, Any]) -> str:
             return "memory_writing_agent"
 
     return caller_id
+
+
+def _caller_id_from_payload(payload: dict[str, Any]) -> str:
+    return normalize_caller_id(payload.get("caller_id"), payload.get("query"))
+
+
+def _parse_event_timestamp(timestamp: str | None) -> datetime | None:
+    if not timestamp:
+        return None
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            return datetime.strptime(timestamp.split(".")[0], "%Y-%m-%dT%H:%M:%S").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            return None
 
 
 def _expected_feedback_count(payload: dict[str, Any], has_trace_id: bool) -> int:
@@ -336,6 +354,136 @@ def _expected_feedback_count(payload: dict[str, Any], has_trace_id: bool) -> int
     return 1 if has_trace_id else 0
 
 
+def _received_feedback_count(
+    retrieval_payload: dict[str, Any],
+    feedback_payload: dict[str, Any],
+    expected: int,
+) -> int:
+    returned_grain_ids = retrieval_payload.get("grain_ids")
+    if isinstance(returned_grain_ids, list):
+        returned = {str(gid) for gid in returned_grain_ids if gid}
+        matched = len(returned & feedback_payload["grain_ids"])
+        return min(
+            matched + min(
+                int(feedback_payload["anonymous_count"]),
+                max(expected - matched, 0),
+            ),
+            expected,
+        )
+    return min(
+        len(feedback_payload["grain_ids"]) + int(feedback_payload["anonymous_count"]),
+        expected,
+    )
+
+
+def _feedback_by_trace_since(
+    store: FluxStore,
+    cutoff: str,
+) -> dict[str, dict[str, Any]]:
+    feedback_rows = store.conn.execute(
+        """
+        SELECT trace_id, data
+        FROM events
+        WHERE category='feedback'
+          AND event='feedback_received'
+          AND timestamp>=?
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    feedback_by_trace: dict[str, dict[str, Any]] = {}
+    for row in feedback_rows:
+        trace_id = row["trace_id"]
+        if not trace_id:
+            continue
+        payload = _event_payload(row)
+        entry = feedback_by_trace.setdefault(trace_id, {
+            "grain_ids": set(),
+            "anonymous_count": 0,
+        })
+        grain_id = payload.get("grain_id")
+        if grain_id:
+            entry["grain_ids"].add(str(grain_id))
+        else:
+            entry["anonymous_count"] += 1
+    return feedback_by_trace
+
+
+def pending_feedback_for_caller(
+    store: FluxStore,
+    caller_id: str,
+    now: datetime | None = None,
+    *,
+    grace_seconds: float = 60.0,
+    lookback_days: int = 30,
+) -> dict[str, Any]:
+    now = now or utcnow()
+    cutoff_dt = now - timedelta(days=lookback_days)
+    cutoff = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%S")
+    target_caller = normalize_caller_id(caller_id)
+
+    retrieval_rows = store.conn.execute(
+        """
+        SELECT timestamp, trace_id, data
+        FROM events
+        WHERE category='retrieval'
+          AND event='grains_returned'
+          AND timestamp>=?
+        """,
+        (cutoff,),
+    ).fetchall()
+    feedback_by_trace = _feedback_by_trace_since(store, cutoff)
+
+    pending_traces: list[dict[str, Any]] = []
+    expected_total = 0
+    received_total = 0
+
+    for row in retrieval_rows:
+        trace_id = row["trace_id"]
+        if not trace_id:
+            continue
+        payload = _event_payload(row)
+        if _caller_id_from_payload(payload) != target_caller:
+            continue
+        event_time = _parse_event_timestamp(row["timestamp"])
+        if event_time is None:
+            continue
+        if (now - event_time).total_seconds() < grace_seconds:
+            continue
+
+        expected = _expected_feedback_count(payload, has_trace_id=True)
+        if expected <= 0:
+            continue
+
+        received_payload = feedback_by_trace.get(trace_id, {
+            "grain_ids": set(),
+            "anonymous_count": 0,
+        })
+        received = _received_feedback_count(payload, received_payload, expected)
+        missing = max(expected - received, 0)
+        if missing <= 0:
+            continue
+
+        expected_total += expected
+        received_total += received
+        pending_traces.append({
+            "trace_id": trace_id,
+            "expected": expected,
+            "received": received,
+            "missing": missing,
+            "age_seconds": round((now - event_time).total_seconds(), 3),
+        })
+
+    missing_total = sum(item["missing"] for item in pending_traces)
+    return {
+        "caller_id": target_caller,
+        "pending_traces": pending_traces,
+        "expected": expected_total,
+        "received": received_total,
+        "missing": missing_total,
+    }
+
+
 def _feedback_compliance_by_caller(
     store: FluxStore,
     cutoff: str,
@@ -351,34 +499,19 @@ def _feedback_compliance_by_caller(
         (cutoff,),
     ).fetchall()
 
-    feedback_rows = store.conn.execute(
+    feedback_by_trace = _feedback_by_trace_since(store, cutoff)
+    untraced_feedback_row = store.conn.execute(
         """
-        SELECT trace_id, data
+        SELECT COUNT(*) AS n
         FROM events
         WHERE category='feedback'
           AND event='feedback_received'
           AND timestamp>=?
+          AND (trace_id IS NULL OR trace_id = '')
         """,
         (cutoff,),
-    ).fetchall()
-
-    feedback_by_trace: dict[str, dict[str, Any]] = {}
-    untraced_feedback_count = 0
-    for row in feedback_rows:
-        trace_id = row["trace_id"]
-        if not trace_id:
-            untraced_feedback_count += 1
-            continue
-        payload = _event_payload(row)
-        entry = feedback_by_trace.setdefault(trace_id, {
-            "grain_ids": set(),
-            "anonymous_count": 0,
-        })
-        grain_id = payload.get("grain_id")
-        if grain_id:
-            entry["grain_ids"].add(str(grain_id))
-        else:
-            entry["anonymous_count"] += 1
+    ).fetchone()
+    untraced_feedback_count = int(untraced_feedback_row["n"] or 0) if untraced_feedback_row else 0
 
     stats: dict[str, dict[str, float]] = {}
     for row in retrieval_rows:
@@ -405,20 +538,7 @@ def _feedback_compliance_by_caller(
                 "grain_ids": set(),
                 "anonymous_count": 0,
             })
-            returned_grain_ids = payload.get("grain_ids")
-            if isinstance(returned_grain_ids, list):
-                returned = {str(gid) for gid in returned_grain_ids if gid}
-                matched = len(returned & received_payload["grain_ids"])
-                received = matched + min(
-                    int(received_payload["anonymous_count"]),
-                    max(expected - matched, 0),
-                )
-            else:
-                received = (
-                    len(received_payload["grain_ids"])
-                    + int(received_payload["anonymous_count"])
-                )
-            received = min(received, expected)
+            received = _received_feedback_count(payload, received_payload, expected)
 
         entry["expected"] += expected
         entry["received"] += received

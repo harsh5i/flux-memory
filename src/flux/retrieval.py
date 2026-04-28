@@ -27,7 +27,7 @@ from .embedding import EmbeddingBackend, vector_fallback
 from .expansion import expand_results
 from .extraction import decompose_query, extract_and_store_grains, store_atomic_grain
 from .graph import Grain, Trace, new_id, utcnow
-from .health import log_event
+from .health import log_event, normalize_caller_id, pending_feedback_for_caller
 from .llm import LLMBackend
 from .promotion import check_promotion
 from .propagation import PropagationResult, TraceStep, propagate, retrieval_confidence
@@ -149,6 +149,33 @@ def flux_retrieve(
     """
     now = now or utcnow()
     query = query.strip()
+    caller_id = normalize_caller_id(caller_id, query)
+
+    if cfg.FEEDBACK_ENFORCEMENT_ENABLED:
+        pending = pending_feedback_for_caller(
+            store,
+            caller_id,
+            now,
+            grace_seconds=cfg.FEEDBACK_ENFORCEMENT_GRACE_SECONDS,
+            lookback_days=cfg.TRACE_RETENTION_DAYS,
+        )
+        if pending["missing"] > 0:
+            log_event(
+                store,
+                "feedback",
+                "feedback_required_blocked",
+                {
+                    "caller_id": caller_id,
+                    "missing": pending["missing"],
+                    "pending_traces": pending["pending_traces"][:5],
+                },
+                now=now,
+                caller_id=caller_id,
+            )
+            raise RuntimeError(
+                "flux_feedback required before next retrieval for caller "
+                f"'{caller_id}': {pending['missing']} pending feedback item(s)."
+            )
 
     # 1. Query decomposition → entry IDs + features.
     entry_ids = decompose_query(query, llm, store, cfg=cfg, now=now)
@@ -263,6 +290,7 @@ def flux_feedback(
     Then calls reinforce() or penalize() on the trace conduits.
     """
     now = now or utcnow()
+    caller_id = normalize_caller_id(caller_id)
 
     trace = store.get_trace(trace_id)
     if trace is None:
