@@ -309,7 +309,7 @@ def _caller_id_from_payload(payload: dict[str, Any]) -> str:
     query = str(payload.get("query") or "").strip().lower()
 
     if caller_id in {"codex", "default", "unknown"}:
-        if query.startswith("generate 0 to 3 ambient suggestions"):
+        if "ambient suggestions" in query:
             return "ambient_suggestions"
         if "memory writing agent" in query:
             return "memory_writing_agent"
