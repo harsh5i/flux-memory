@@ -24,6 +24,9 @@ package production-ready.
 
 | Issue | Fix |
 |-------|-----|
+| Caller compliance showed Codex-specific helper names that were not portable to other AI clients | Added AI-agnostic caller attribution using arbitrary `client` names and standard roles (`chat`, `memory_writer`, `background_lookup`, `system`, `admin`, `test`); onboarding, MCP, REST, dashboard, and docs now use the generic `client:role` contract |
+| Missing feedback blocks could look like permanent generic errors | Added recoverable feedback-required errors with pending trace/grain IDs and a max stale-block window |
+| `flux_store` in `caller_extracts` mode could store atomic grains without graph wiring after extraction fallback | Added atomic graph backfill so fallback stores still create embeddings and entry/conduit links |
 | Windows `pip install --user` can install `flux.exe` outside PATH | Documented `python -m flux` fallback and recommended `pipx`; added package module entry point |
 | `flux start` claimed success before services were reachable | Start now writes logs, waits for REST/dashboard health, and reports partial failure with log path |
 | Dashboard API could hang because the dashboard used single-threaded `HTTPServer` | Dashboard now uses `ThreadingHTTPServer` |
@@ -45,7 +48,7 @@ package production-ready.
 | `src/flux/config.py` | Added operating mode, service ports/hosts, booth tuning params, and admin auth params |
 | `src/flux/storage.py` | `check_same_thread=False` for multi-threaded access and `INSERT OR IGNORE` for concurrent entry creation |
 | `src/flux/llm.py` / `src/flux/embedding.py` | Moved test mocks out of production modules |
-| `pyproject.toml` | Version 0.6.1 package metadata and console script |
+| `pyproject.toml` | Version 0.6.2 package metadata and console script |
 
 ## Validation
 
@@ -89,7 +92,7 @@ not as a replacement for CI or a clean-machine pytest run.
 ## Installation
 
 ```bash
-pip install flux-memory==0.6.1
+pip install flux-memory==0.6.2
 python -m flux init --name my-memory
 python -m flux start --name my-memory
 python -m flux mcp-config --name my-memory
@@ -99,4 +102,4 @@ python -m flux mcp-config --name my-memory
 
 https://github.com/harsh5i/flux-memory
 
-Tag: `v0.6`
+Latest tag: `v0.6.2`
