@@ -1,5 +1,24 @@
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 .venv/
+venv/
+.pytest_cache/
+.pytest_tmp/
+.hypothesis/
 *.db
-*.db-journal
+*.db-shm
+*.db-wal
+dist/
+build/
+.DS_Store
+.env
+*.pid
+# Flux instance data (never commit user data)
+.flux/
+# IDE
+.vscode/
+.idea/
+*.swp
+# OS
+Thumbs.db

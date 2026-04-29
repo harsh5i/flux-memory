@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flux-memory"
+version = "0.6.2"
+description = "Self-organizing retrieval fabric for AI memory"
+requires-python = ">=3.10"
+authors = [{ name = "Harsh" }]
+license = { text = "MIT" }
+readme = "README.md"
+keywords = ["ai-memory", "rag-alternative", "mcp-server", "knowledge-graph", "python"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "networkx>=3.0",
+    "sentence-transformers>=2.0",
+    "numpy",
+    "pyyaml",
+    "pydantic>=2.0",
+    "requests>=2.28",
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "click>=8.0",
+    "argon2-cffi>=21.0",
+    "pyotp>=2.8",
+    "qrcode>=7.0",
+    "mcp>=1.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6.0",
+    "httpx>=0.24",
+]
+qr = [
+    "qrcode>=7.0",
+]
+
+[project.scripts]
+flux = "flux.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/harsh5i/flux-memory"
+Repository = "https://github.com/harsh5i/flux-memory"
+Documentation = "https://github.com/harsh5i/flux-memory/blob/master/docs/flux-memory-docs.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+flux = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
