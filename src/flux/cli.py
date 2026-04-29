@@ -52,7 +52,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-_VERSION = "0.6.1"
+_VERSION = "0.6.2"
 _DEFAULT_NAME = "flux-memory"
 _FLUX_HOME = Path.home() / ".flux"
 
