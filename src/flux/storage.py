@@ -224,6 +224,44 @@ class FluxStore:
     def delete_conduit(self, conduit_id: str) -> None:
         self.conn.execute("DELETE FROM conduits WHERE id = ?", (conduit_id,))
 
+    def query_conduits_unused_since(
+        self, cutoff: datetime, limit: int
+    ) -> list[Conduit]:
+        """Conduits whose last_used is older than ``cutoff``, ordered oldest
+        first (stalest candidates tried first) and capped at ``limit``. Backs
+        the §4.5 cleanup pass -- the ``idx_conduits_last_used`` index keeps
+        this bounded even as the graph grows."""
+        rows = self.conn.execute(
+            """
+            SELECT * FROM conduits
+            WHERE last_used < ?
+            ORDER BY last_used ASC
+            LIMIT ?
+            """,
+            (iso(cutoff), limit),
+        ).fetchall()
+        return [_row_to_conduit(r) for r in rows]
+
+    def count_inbound_conduits(self, grain_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM conduits WHERE to_id = ?",
+            (grain_id,),
+        ).fetchone()
+        return int(row["n"])
+
+    def mark_dormant(self, grain_id: str, now: datetime) -> None:
+        """Transition an active grain to dormant (§4.5 incremental orphan
+        sweep). No-op if the grain isn't active -- dormant/archived/quarantined
+        grains keep their existing status and dormant_since timestamp."""
+        self.conn.execute(
+            """
+            UPDATE grains
+            SET status = 'dormant', dormant_since = ?
+            WHERE id = ? AND status = 'active'
+            """,
+            (iso(now), grain_id),
+        )
+
     # ---------------------------------------------------- co-retrieval counts
     def increment_co_retrieval(self, grain_a: str, grain_b: str, delta: int = 1) -> int:
         """Canonicalize (lower, higher) then UPSERT count += delta. Returns new count."""
