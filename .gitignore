@@ -22,3 +22,4 @@ build/
 *.swp
 # OS
 Thumbs.db
+*.Connection objects
