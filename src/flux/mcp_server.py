@@ -233,6 +233,28 @@ def build_mcp_server(
                 },
             ),
             types.Tool(
+                name="flux_pending_feedback",
+                description=(
+                    "List pending (un-fed-back) retrievals for a caller. "
+                    "Returns each pending trace_id with its grain_ids so the "
+                    "caller can close the loop with flux_feedback. Pass "
+                    "target_caller_id (e.g. 'olive_main_chat:chat') to inspect "
+                    "another caller; defaults to the current caller_id."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "target_caller_id": {
+                            "type": "string",
+                            "description": "Caller whose pending feedback to list. Defaults to caller_id.",
+                        },
+                        "caller_id": {"type": "string", "default": "default"},
+                        "client": {"type": "string"},
+                        "role": {"type": "string"},
+                    },
+                },
+            ),
+            types.Tool(
                 name="flux_list_grains",
                 description=(
                     "List grains filtered by status. Read-only. "
@@ -361,6 +383,17 @@ def _dispatch(
 
     if name == "flux_health":
         return flux_health(store, cfg)
+
+    if name == "flux_pending_feedback":
+        from .health import pending_feedback_for_caller, normalize_caller_id
+        target = args.get("target_caller_id") or caller_id
+        target = normalize_caller_id(target)
+        result = pending_feedback_for_caller(
+            store, target,
+            grace_seconds=cfg.FEEDBACK_ENFORCEMENT_GRACE_SECONDS,
+            max_block_seconds=cfg.FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS,
+        )
+        return result
 
     if name == "flux_list_grains":
         if service is not None:

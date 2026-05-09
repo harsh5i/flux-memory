@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head><title>Flux Dashboard Test</title></head>
+<body style="background:#0d1117;color:#c9d1d9;font-family:sans-serif;padding:20px">
+<h1>Flux Dashboard Diagnostics</h1>
+<div id="status">Loading...</div>
+<div id="d3test">D3: testing...</div>
+<div id="apihealth">API Health: testing...</div>
+<div id="apigraph">API Graph: testing...</div>
+<div id="canvas-test"></div>
+<script src="/d3.min.js"></script>
+<script>
+// Test 1: D3 loaded?
+document.getElementById('d3test').textContent = 'D3: ' + (typeof d3 !== 'undefined' ? 'LOADED (v' + d3.version + ')' : 'NOT LOADED');
+
+// Test 2: API Health
+fetch('/api/health')
+  .then(r => r.json())
+  .then(d => {
+    document.getElementById('apihealth').textContent = 'API Health: OK - ' + d.status + ' - ' + d.signals.core_grain_count.value + ' core grains';
+  })
+  .catch(e => {
+    document.getElementById('apihealth').textContent = 'API Health: FAILED - ' + e.message;
+  });
+
+// Test 3: API Graph
+fetch('/api/graph')
+  .then(r => r.json())
+  .then(d => {
+    document.getElementById('apigraph').textContent = 'API Graph: OK - ' + d.nodes.length + ' nodes, ' + d.links.length + ' links';
+    document.getElementById('status').textContent = 'All systems operational!';
+    document.getElementById('status').style.color = '#3fb950';
+
+    // Test 4: Draw on canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 600;
+    canvas.height = 400;
+    canvas.style.background = '#0d1117';
+    canvas.style.border = '1px solid #30363d';
+    canvas.id = 'test-canvas';
+    document.getElementById('canvas-test').appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, 600, 400);
+
+    // Draw nodes
+    d.nodes.slice(0, 50).forEach((n, i) => {
+      const x = Math.random() * 560 + 20;
+      const y = Math.random() * 360 + 20;
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = n.decay_class === 'core' ? '#58a6ff' : '#3fb950';
+      ctx.fill();
+    });
+
+    ctx.fillStyle = '#c9d1d9';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('Canvas test: 50 nodes drawn', 20, 30);
+  })
+  .catch(e => {
+    document.getElementById('apigraph').textContent = 'API Graph: FAILED - ' + e.message;
+    document.getElementById('status').textContent = 'Error: ' + e.message;
+    document.getElementById('status').style.color = '#f85149';
+  });
+</script>
+</body>
+</html>

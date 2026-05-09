@@ -29,9 +29,10 @@ from .extraction import decompose_query, extract_and_store_grains, store_atomic_
 from .graph import Grain, Trace, new_id, utcnow
 from .health import log_event, normalize_caller_id, pending_feedback_for_caller
 from .llm import LLMBackend
+from .clustering import record_entry_cooccurrence
 from .promotion import check_promotion
 from .propagation import PropagationResult, TraceStep, propagate, retrieval_confidence
-from .reinforcement import penalize, reinforce
+from .reinforcement import pair_useful_with_priors, penalize, reinforce
 from .storage import FluxStore
 
 logger = logging.getLogger(__name__)
@@ -229,6 +230,13 @@ def flux_retrieve(
     entry_ids = decompose_query(query, llm, store, cfg=cfg, now=now)
     features = [store.get_entry(eid).feature for eid in entry_ids if store.get_entry(eid)]
 
+    # 1b. Record entry co-occurrence so clustering has something to work with.
+    if len(entry_ids) >= 2:
+        try:
+            record_entry_cooccurrence(store, entry_ids, now=now)
+        except Exception as exc:
+            logger.warning("record_entry_cooccurrence failed: %s", exc)
+
     # 2. Propagate from entry IDs.
     result: PropagationResult = propagate(store, entry_ids, cfg=cfg, now=now)
 
@@ -259,6 +267,7 @@ def flux_retrieve(
             "to_id": step.to_id,
             "signal": step.signal,
             "hop": step.hop,
+            "effective_weight": step.effective_weight,
         }
         for step in result.trace
     ])
@@ -362,6 +371,17 @@ def flux_feedback(
 
     if effective_signal > 0:
         reinforce(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id)
+        # Pair this newly-useful grain with previously-marked-useful grains
+        # from the same trace so co-retrieval counts and shortcuts can form.
+        try:
+            prior_useful = _prior_useful_grains_for_trace(store, trace_id, grain_id)
+            if prior_useful:
+                pair_useful_with_priors(
+                    store, grain_id, prior_useful,
+                    cfg=cfg, now=now, trace_id=trace_id,
+                )
+        except Exception as exc:
+            logger.warning("pair_useful_with_priors failed: %s", exc)
         check_promotion(store, grain_id, trace_steps, cfg=cfg, now=now, trace_id=trace_id)
         action = "reinforced"
     else:
@@ -411,11 +431,30 @@ def _decode_trace_steps(trace_data: str) -> list[TraceStep]:
                 to_id=item["to_id"],
                 signal=item["signal"],
                 hop=item["hop"],
+                effective_weight=item.get("effective_weight", 0.0),
             )
             for item in items
         ]
-    except Exception:
+    except Exception as e:
+        logger.warning("flux_feedback: trace decode failed: %s", e)
         return []
+
+
+def _prior_useful_grains_for_trace(
+    store: FluxStore, trace_id: str, exclude_grain_id: str
+) -> list[str]:
+    """Return grain_ids previously marked useful for this same trace."""
+    rows = store.conn.execute(
+        """
+        SELECT DISTINCT json_extract(data, '$.grain_id') AS gid
+        FROM events
+        WHERE category='feedback' AND event='feedback_received'
+          AND json_extract(data, '$.trace_id') = ?
+          AND json_extract(data, '$.useful') = 1
+        """,
+        (trace_id,),
+    ).fetchall()
+    return [r["gid"] for r in rows if r["gid"] and r["gid"] != exclude_grain_id]
 
 
 def _get_usefulness_ratio(store: FluxStore, grain_id: str, window_days: int = 7) -> float:

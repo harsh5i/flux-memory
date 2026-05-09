@@ -798,6 +798,49 @@ Admin Menu:
             print("Dashboard failed to start.", file=sys.stderr)
             traceback.print_exc()
 
+        # Maintenance thread — runs decay cleanup, dormancy expiry, and clustering
+        # on a fixed cadence. Without this loop the self-organising signals
+        # (conduit dissolution, promotion, shortcut creation) cannot fire because
+        # the underlying passes never execute.
+        def _maintenance():
+            from flux.decay import cleanup_pass, expiry_pass
+            from flux.clustering import recompute_clusters
+            from flux.health import log_event
+            from flux.storage import FluxStore as _Store
+
+            interval_seconds = max(60.0, cfg.CLEANUP_INTERVAL_HOURS * 3600.0)
+            # First pass after a short grace so the rest of the gateway can settle.
+            time.sleep(60)
+            while True:
+                try:
+                    with _Store(db_path) as mstore:
+                        try:
+                            stats = cleanup_pass(mstore, cfg)
+                        except Exception as exc:
+                            log_event(mstore, "system", "maintenance_error",
+                                      {"pass": "cleanup", "error": str(exc)})
+                            traceback.print_exc()
+                        try:
+                            stats = expiry_pass(mstore, cfg)
+                        except Exception as exc:
+                            log_event(mstore, "system", "maintenance_error",
+                                      {"pass": "expiry", "error": str(exc)})
+                            traceback.print_exc()
+                        try:
+                            stats = recompute_clusters(mstore, cfg)
+                            log_event(mstore, "system", "clustering_pass_completed", stats)
+                        except Exception as exc:
+                            log_event(mstore, "system", "maintenance_error",
+                                      {"pass": "clustering", "error": str(exc)})
+                            traceback.print_exc()
+                except Exception:
+                    traceback.print_exc()
+                time.sleep(interval_seconds)
+
+        t = threading.Thread(target=_maintenance, name="flux-maintenance", daemon=True)
+        t.start()
+        threads.append(t)
+
         try:
             while True:
                 time.sleep(1)

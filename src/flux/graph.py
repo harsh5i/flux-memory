@@ -39,7 +39,11 @@ def parse_iso(s: str | None) -> datetime | None:
         return dt.replace(tzinfo=timezone.utc)
     except ValueError:
         # Fall back to fromisoformat for callers that pass ISO-8601 with T/Z.
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        # Ensure timezone-aware (assume UTC if naive — old data compat)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
 
 
 @dataclass

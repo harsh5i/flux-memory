@@ -1,0 +1,1018 @@
+<!DOCTYPE html><html lang="en"><head>
+
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flux Memory — Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #080a0e;
+    --surface: #0f1117;
+    --surface2: #161921;
+    --border: #1e2330;
+    --border2: #252c3a;
+    --text: #dde3f0;
+    --text-muted: #5a6480;
+    --text-dim: #3a4255;
+    --cyan: #22d3ee;
+    --cyan-dim: rgba(34,211,238,0.12);
+    --green: #4ade80;
+    --green-dim: rgba(74,222,128,0.12);
+    --amber: #fbbf24;
+    --amber-dim: rgba(251,191,36,0.12);
+    --rose: #f43f5e;
+    --rose-dim: rgba(244,63,94,0.12);
+    --violet: #a78bfa;
+    --violet-dim: rgba(167,139,250,0.12);
+    --radius: 6px;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --font-ui: 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 13px; overflow: hidden; }
+
+  /* LAYOUT */
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* TOP BAR */
+  #topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  #topbar .brand { display: flex; align-items: center; gap: 8px; margin-right: 4px; }
+  #topbar .brand svg { flex-shrink: 0; }
+  #topbar .brand-name { font-size: 14px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); }
+  #topbar .brand-sub { font-size: 11px; color: var(--text-muted); }
+  #status-badge {
+    display: flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.4px; text-transform: uppercase;
+  }
+  .badge-healthy { background: var(--green-dim); color: var(--green); border: 1px solid rgba(74,222,128,0.3); }
+  .badge-warning { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(251,191,36,0.3); }
+  .badge-critical { background: var(--rose-dim); color: var(--rose); border: 1px solid rgba(244,63,94,0.3); }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; animation: pulse 2s ease-in-out infinite; }
+  .pulse-green { background: var(--green); box-shadow: 0 0 0 0 rgba(74,222,128,0.6); }
+  .pulse-amber { background: var(--amber); box-shadow: 0 0 0 0 rgba(251,191,36,0.6); }
+  .pulse-rose { background: var(--rose); box-shadow: 0 0 0 0 rgba(244,63,94,0.6); }
+  @keyframes pulse {
+    0%,100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.4); opacity: 0.6; }
+  }
+  .divider { width: 1px; height: 20px; background: var(--border2); flex-shrink: 0; }
+  #metrics-strip { display: flex; gap: 2px; flex: 1; flex-wrap: wrap; }
+  .metric-pill {
+    display: flex; flex-direction: column; align-items: flex-start;
+    padding: 4px 12px; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius); min-width: 80px; cursor: default;
+    transition: border-color 0.15s;
+  }
+  .metric-pill:hover { border-color: var(--border2); }
+  .metric-pill .m-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .metric-pill .m-value { font-size: 16px; font-weight: 700; font-family: var(--font-mono); color: var(--text); line-height: 1.2; margin-top: 1px; }
+  .metric-pill .m-value.c-cyan { color: var(--cyan); }
+  .metric-pill .m-value.c-green { color: var(--green); }
+  .metric-pill .m-value.c-amber { color: var(--amber); }
+  .metric-pill .m-value.c-rose { color: var(--rose); }
+  #topbar-controls { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  #computed-at { font-size: 10px; color: var(--text-dim); font-family: var(--font-mono); white-space: nowrap; }
+  .icon-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: var(--radius);
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--border2); }
+  .icon-btn.active { color: var(--cyan); border-color: rgba(34,211,238,0.3); background: var(--cyan-dim); }
+  #refresh-interval { font-size: 11px; color: var(--text-muted); }
+
+  /* MAIN AREA */
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* LEFT: GRAPH PANEL */
+  #graph-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border); }
+  #graph-toolbar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
+  }
+  #search-box {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 4px 8px; flex: 1; max-width: 220px;
+  }
+  #search-box input {
+    background: none; border: none; outline: none; color: var(--text);
+    font-size: 12px; font-family: var(--font-ui); width: 100%;
+  }
+  #search-box input::placeholder { color: var(--text-dim); }
+  .filter-group { display: flex; align-items: center; gap: 3px; }
+  .filter-btn {
+    padding: 3px 8px; border-radius: var(--radius); font-size: 11px; font-weight: 500;
+    border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .filter-btn.active { background: var(--cyan-dim); border-color: rgba(34,211,238,0.35); color: var(--cyan); }
+  .filter-btn.active.violet { background: var(--violet-dim); border-color: rgba(167,139,250,0.35); color: var(--violet); }
+  .slider-group { display: flex; align-items: center; gap: 6px; }
+  .slider-group label { font-size: 10px; color: var(--text-muted); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.4px; }
+  #weight-slider { width: 80px; accent-color: var(--cyan); cursor: pointer; }
+  #weight-val { font-size: 11px; font-family: var(--font-mono); color: var(--cyan); min-width: 28px; }
+  #graph-container { flex: 1; position: relative; overflow: hidden; }
+  #graph-svg { width: 100%; height: 100%; display: block; }
+  #graph-overlay {
+    position: absolute; bottom: 12px; left: 12px;
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-muted); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 999;
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 8px 10px; max-width: 260px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.1s;
+    font-size: 11px; line-height: 1.6;
+  }
+  #tooltip .tt-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  #tooltip .tt-row { display: flex; justify-content: space-between; gap: 12px; }
+  #tooltip .tt-key { color: var(--text-muted); }
+  #tooltip .tt-val { font-family: var(--font-mono); color: var(--text); }
+  #graph-stats {
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(15,17,23,0.8); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 5px 9px; font-size: 10px;
+    font-family: var(--font-mono); color: var(--text-muted);
+    backdrop-filter: blur(4px);
+  }
+  #no-data-msg {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px;
+    color: var(--text-dim); font-size: 13px; display: none;
+  }
+
+  /* RIGHT PANEL */
+  #right-panel {
+    width: 320px; flex-shrink: 0; display: flex; flex-direction: column;
+    background: var(--surface); overflow-y: auto; overflow-x: hidden;
+  }
+  .rpanel-section {
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .rpanel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; cursor: pointer; user-select: none;
+  }
+  .rpanel-header-left { display: flex; align-items: center; gap: 6px; }
+  .rpanel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); }
+  .rpanel-count {
+    font-size: 10px; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1px 6px; font-family: var(--font-mono); color: var(--text-muted);
+  }
+  .rpanel-count.warn { background: var(--amber-dim); border-color: rgba(251,191,36,0.3); color: var(--amber); }
+  .rpanel-body { padding: 0 14px 12px; }
+  .rpanel-chevron { color: var(--text-dim); transition: transform 0.2s; }
+  .rpanel-chevron.open { transform: rotate(180deg); }
+
+  /* INSPECTOR */
+  #inspector-empty {
+    padding: 24px 14px; text-align: center; color: var(--text-dim); font-size: 11px; line-height: 1.6;
+  }
+  .inspector-node-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+  .inspector-icon { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .inspector-label { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.4; word-break: break-word; }
+  .inspector-type { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 2px; }
+  .inspector-rows { display: flex; flex-direction: column; gap: 4px; }
+  .inspector-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+  .inspector-row:last-child { border-bottom: none; }
+  .ir-key { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .ir-val { font-size: 11px; font-family: var(--font-mono); color: var(--text); text-align: right; word-break: break-all; }
+  .tag { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 500; }
+  .tag-cyan { background: var(--cyan-dim); color: var(--cyan); }
+  .tag-violet { background: var(--violet-dim); color: var(--violet); }
+  .tag-green { background: var(--green-dim); color: var(--green); }
+  .tag-amber { background: var(--amber-dim); color: var(--amber); }
+  .tag-rose { background: var(--rose-dim); color: var(--rose); }
+  .tag-dim { background: var(--surface2); color: var(--text-muted); }
+
+  /* WARNINGS */
+  .warning-card {
+    background: var(--surface2); border: 1px solid rgba(251,191,36,0.2);
+    border-radius: var(--radius); padding: 8px 10px; margin-bottom: 6px;
+  }
+  .warning-card:last-child { margin-bottom: 0; }
+  .warning-signal { font-size: 11px; font-weight: 600; color: var(--amber); font-family: var(--font-mono); }
+  .warning-msg { font-size: 11px; color: var(--text-muted); margin-top: 3px; line-height: 1.5; }
+  .warning-val { font-size: 10px; color: var(--text-dim); margin-top: 4px; font-family: var(--font-mono); }
+
+  /* HEALTH TABLE */
+  .health-group { margin-bottom: 10px; }
+  .health-group-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px solid var(--border); }
+  .health-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+  .health-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .health-row-key { flex: 1; font-size: 11px; color: var(--text-muted); }
+  .health-row-val { font-size: 11px; font-family: var(--font-mono); color: var(--text); min-width: 44px; text-align: right; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  /* LOADING OVERLAY */
+  #loading {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; z-index: 1000;
+  }
+  .loader-ring {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 2px solid var(--border2); border-top-color: var(--cyan);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading .load-text { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+
+  /* RESPONSIVE */
+  @media (max-width: 768px) {
+    #main { flex-direction: column; }
+    #right-panel { width: 100%; height: 300px; border-top: 1px solid var(--border); }
+    #graph-panel { border-right: none; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+</head>
+<body data-cc-id="cc-1" style="cursor: crosshair; background-color: rgb(13, 15, 25);">
+
+<div id="loading" style="display: none;">
+  <div class="loader-ring"></div>
+  <div class="load-text">Initialising Flux Memory…</div>
+</div>
+
+<div id="tooltip" style="opacity: 0; left: 532px; top: 403px;">
+  <div class="tt-title" id="tt-title">entry_9… → grain_5…</div>
+  <div id="tt-body"><div class="tt-row"><span class="tt-key">weight</span><span class="tt-val">0.8735</span></div><div class="tt-row"><span class="tt-key">eff. weight</span><span class="tt-val">0.8561</span></div><div class="tt-row"><span class="tt-key">direction</span><span class="tt-val">forward</span></div><div class="tt-row"><span class="tt-key">decay</span><span class="tt-val">core</span></div><div class="tt-row"><span class="tt-key">use count</span><span class="tt-val">14</span></div><div class="tt-row"><span class="tt-key">edge type</span><span class="tt-val">earned</span></div></div>
+</div>
+
+<div id="app">
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="#22d3ee" stroke-width="1.5" opacity="0.3"></circle>
+        <circle cx="12" cy="12" r="6" stroke="#22d3ee" stroke-width="1.5" opacity="0.6"></circle>
+        <circle cx="12" cy="12" r="2.5" fill="#22d3ee"></circle>
+        <line x1="12" y1="2" x2="12" y2="6" stroke="#22d3ee" stroke-width="1.5" opacity="0.5" stroke-opacity="0.7"></line>
+        <line x1="12" y1="18" x2="12" y2="22" stroke="#22d3ee" stroke-width="1.5" opacity="0.5" stroke-opacity="0.7"></line>
+        <line x1="2" y1="12" x2="6" y2="12" stroke="#22d3ee" stroke-width="1.5" opacity="0.5" stroke-opacity="0.7"></line>
+        <line x1="18" y1="12" x2="22" y2="12" stroke="#22d3ee" stroke-width="1.5" opacity="0.5" stroke-opacity="0.7"></line>
+      </svg>
+      <div>
+        <div class="brand-name">Flux Memory</div>
+        <div class="brand-sub" id="instance-name">test1</div>
+      </div>
+    </div>
+    <div id="status-badge" class="badge-warning">
+      <div class="pulse pulse-amber"></div>
+      <span id="status-text">WARNING</span>
+    </div>
+    <div class="divider"></div>
+    <div id="metrics-strip">
+      <div class="metric-pill"><span class="m-label">Grains</span><span class="m-value c-cyan" id="m-grains">29</span></div>
+      <div class="metric-pill"><span class="m-label">Entries</span><span class="m-value" id="m-entries">135</span></div>
+      <div class="metric-pill"><span class="m-label">Conduits</span><span class="m-value" id="m-conduits">260</span></div>
+      <div class="metric-pill"><span class="m-label">Embeddings</span><span class="m-value" id="m-embed">29</span></div>
+      <div class="metric-pill"><span class="m-label">Retrieval</span><span class="m-value c-green" id="m-retrieval">74%</span></div>
+      <div class="metric-pill"><span class="m-label">Fallback</span><span class="m-value c-rose" id="m-fallback">100%</span></div>
+      <div class="metric-pill"><span class="m-label">Feedback</span><span class="m-value c-rose" id="m-feedback">0%</span></div>
+    </div>
+    <div class="divider"></div>
+    <div id="topbar-controls">
+      <span id="computed-at">3:15:47 AM</span>
+      <button class="icon-btn" id="refresh-btn" title="Refresh now" onclick="fetchAll()" fdprocessedid="mgt0ms">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+      </button>
+      <button class="icon-btn" id="autorefresh-btn" title="Toggle auto-refresh" onclick="toggleAutoRefresh()" fdprocessedid="hgqnwr">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+      </button>
+      <span id="refresh-interval" style="display: none;">30s</span>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+
+    <!-- GRAPH PANEL -->
+    <div id="graph-panel">
+      <div id="graph-toolbar">
+        <div id="search-box">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5a6480" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65" stroke-opacity="0.7"></line></svg>
+          <input type="text" id="search-input" placeholder="Search nodes…" oninput="onSearch(this.value)" fdprocessedid="mqac2">
+        </div>
+        <div class="filter-group">
+          <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px">Type</span>
+          <button class="filter-btn active" id="f-grain" onclick="toggleFilter('grain')" fdprocessedid="t5jftd">Grains</button>
+          <button class="filter-btn violet active" id="f-entry" onclick="toggleFilter('entry')" fdprocessedid="pba5gd">Entries</button>
+        </div>
+        <div class="filter-group">
+          <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px">Status</span>
+          <button class="filter-btn active" id="f-active" onclick="toggleFilter('active')" fdprocessedid="5weyp">Active</button>
+          <button class="filter-btn active" id="f-dormant" onclick="toggleFilter('dormant')" fdprocessedid="r0i09a">Dormant</button>
+        </div>
+        <div class="slider-group">
+          <label>Weight ≥</label>
+          <input type="range" id="weight-slider" min="0" max="1" step="0.05" value="0" oninput="onWeightChange(this.value)">
+          <span id="weight-val">0.00</span>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:4px">
+          <button class="icon-btn" id="pause-btn" title="Pause/resume layout" onclick="toggleSimulation()" fdprocessedid="hon4i">
+            <svg id="pause-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+          </button>
+          <button class="icon-btn" title="Reset view" onclick="resetView()" fdprocessedid="o9zaby">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="graph-container">
+        <svg id="graph-svg" width="1199" height="926"><defs><marker id="arrow-forward" viewBox="0 -4 8 8" refX="14" refY="0" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,-4L8,0L0,4" fill="#1e3f5a"></path></marker><marker id="arrow-bidirectional" viewBox="0 -4 8 8" refX="14" refY="0" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,-4L8,0L0,4" fill="#7c3aed"></path></marker><marker id="arrow-selected" viewBox="0 -4 8 8" refX="14" refY="0" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,-4L8,0L0,4" fill="#22d3ee"></path></marker></defs><g><g><line stroke="#1e3f5a" stroke-width="0.7829153836947362" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="677.3017543299637" y1="443.453260972379" x2="628.6887497852189" y2="604.6664406533821"></line><line stroke="#38bdf8" stroke-width="1.4419822894694614" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="677.3017543299637" y1="443.453260972379" x2="766.2158109548885" y2="398.689838636173"></line><line stroke="#1e3a4a" stroke-width="0.5399159405204128" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="677.3017543299637" y1="443.453260972379" x2="801.573452340537" y2="542.8885413366817"></line><line stroke="#1e3f5a" stroke-width="1.0719683931708248" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="677.3017543299637" y1="443.453260972379" x2="556.9730006608756" y2="377.8106559082528"></line><line stroke="#38bdf8" stroke-width="2.1911848581855247" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="677.3017543299637" y1="443.453260972379" x2="587.2368528306883" y2="322.6064316404506"></line><line stroke="#1e3f5a" stroke-width="0.6722733551197346" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="433.4545857512053" y1="570.1429316463693" x2="513.7783397162622" y2="673.8496694760671"></line><line stroke="#38bdf8" stroke-width="1.0269130833221838" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="433.4545857512053" y1="570.1429316463693" x2="511.47102480515827" y2="433.6010055107934"></line><line stroke="#1e3f5a" stroke-width="1.228103783635865" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="619.4030946643481" y1="330.12741825586625" x2="700.1078494485312" y2="393.3527675352126"></line><line stroke="#38bdf8" stroke-width="2.1920988348191774" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="619.4030946643481" y1="330.12741825586625" x2="727.3033260014777" y2="358.690820500209"></line><line stroke="#1e3a4a" stroke-width="1.6410099484063978" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="619.4030946643481" y1="330.12741825586625" x2="642.2729700874014" y2="277.03437754431206"></line><line stroke="#1e3f5a" stroke-width="2.122672595465776" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="619.4030946643481" y1="330.12741825586625" x2="576.9745770083031" y2="433.2410318275608"></line><line stroke="#38bdf8" stroke-width="1.348714589003547" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="619.4030946643481" y1="330.12741825586625" x2="515.8799720809257" y2="242.40663621075785"></line><line stroke="#1e3f5a" stroke-width="1.5040415712798472" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="798.2517111945368" y1="479.438089984083" x2="754.1037149985743" y2="570.5775051620274"></line><line stroke="#38bdf8" stroke-width="1.12725815878402" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="798.2517111945368" y1="479.438089984083" x2="858.0234871232745" y2="424.2617189649999"></line><line stroke="#1e3a4a" stroke-width="2.007601231047964" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="798.2517111945368" y1="479.438089984083" x2="658.9175141921899" y2="412.89907221005365"></line><line stroke="#1e3f5a" stroke-width="0.6285362688076458" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="329.01335475799095" y1="437.60539298708653" x2="445.39956168374897" y2="383.1008088272617"></line><line stroke="#38bdf8" stroke-width="1.8617096321488944" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="329.01335475799095" y1="437.60539298708653" x2="380.00732380576056" y2="505.9666277258166"></line><line stroke="#1e3a4a" stroke-width="1.8733336366059918" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="329.01335475799095" y1="437.60539298708653" x2="246.34369865714342" y2="381.98365419044006"></line><line stroke="#1e3f5a" stroke-width="1.408353778351279" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="329.01335475799095" y1="437.60539298708653" x2="457.85087172862654" y2="498.40327936819267"></line><line stroke="#1e3f5a" stroke-width="1.4643079919220623" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="707.2999819252091" y1="510.5644804369375" x2="765.4459710347816" y2="529.5365898223438"></line><line stroke="#38bdf8" stroke-width="1.3566859574536192" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="707.2999819252091" y1="510.5644804369375" x2="609.7856706883729" y2="470.14210377237475"></line><line stroke="#1e3a4a" stroke-width="1.2830367383247547" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="707.2999819252091" y1="510.5644804369375" x2="628.6887497852189" y2="604.6664406533821"></line><line stroke="#1e3f5a" stroke-width="1.1220250754048526" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="707.2999819252091" y1="510.5644804369375" x2="766.2158109548885" y2="398.689838636173"></line><line stroke="#38bdf8" stroke-width="0.7360442734080187" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="707.2999819252091" y1="510.5644804369375" x2="801.573452340537" y2="542.8885413366817"></line><line stroke="#1e3f5a" stroke-width="1.429845986652889" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="542.2216430035758" y1="575.388017713222" x2="660.7695551958493" y2="508.3246646803004"></line><line stroke="#38bdf8" stroke-width="1.763445274718944" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="542.2216430035758" y1="575.388017713222" x2="517.1701575629156" y2="509.69271620935206"></line><line stroke="#1e3a4a" stroke-width="1.6531090105060733" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="542.2216430035758" y1="575.388017713222" x2="513.7783397162622" y2="673.8496694760671"></line><line stroke="#1e3f5a" stroke-width="2.1393446875198645" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="542.2216430035758" y1="575.388017713222" x2="511.47102480515827" y2="433.6010055107934"></line><line stroke="#1e3f5a" stroke-width="1.0712709764465258" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="690.0266318197504" y1="282.739388654923" x2="556.9730006608756" y2="377.8106559082528"></line><line stroke="#38bdf8" stroke-width="1.60013967419965" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="690.0266318197504" y1="282.739388654923" x2="587.2368528306883" y2="322.6064316404506"></line><line stroke="#1e3a4a" stroke-width="1.6111232060925111" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="690.0266318197504" y1="282.739388654923" x2="700.1078494485312" y2="393.3527675352126"></line><line stroke="#1e3f5a" stroke-width="1.4503171477320562" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="690.0266318197504" y1="282.739388654923" x2="727.3033260014777" y2="358.690820500209"></line><line stroke="#38bdf8" stroke-width="1.6536865300493833" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="690.0266318197504" y1="282.739388654923" x2="642.2729700874014" y2="277.03437754431206"></line><line stroke="#1e3f5a" stroke-width="1.9297060396502665" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="707.6933012184418" y1="662.4853263346589" x2="644.2488079871528" y2="575.7371877602418"></line><line stroke="#38bdf8" stroke-width="1.3625555215454836" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="707.6933012184418" y1="662.4853263346589" x2="752.8071755265902" y2="771.8165481703617"></line><line stroke="#1e3a4a" stroke-width="1.8950959985462483" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="707.6933012184418" y1="662.4853263346589" x2="754.1037149985743" y2="570.5775051620274"></line><line stroke="#1e3f5a" stroke-width="0.8145456497353659" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="453.71664617899637" y1="301.16932046216914" x2="576.9745770083031" y2="433.2410318275608"></line><line stroke="#38bdf8" stroke-width="2.140139309391531" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="453.71664617899637" y1="301.16932046216914" x2="515.8799720809257" y2="242.40663621075785"></line><line stroke="#1e3a4a" stroke-width="1.4209119783933564" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="453.71664617899637" y1="301.16932046216914" x2="445.39956168374897" y2="383.1008088272617"></line><line stroke="#38bdf8" stroke-width="1.1584664653022543" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="644.2488079871528" y1="575.7371877602418" x2="754.1037149985743" y2="570.5775051620274"></line><line stroke="#38bdf8" stroke-width="1.1525567130865872" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="691.071664480076" y1="333.5522776943882" x2="766.2158109548885" y2="398.689838636173"></line><line stroke="#1e3f5a" stroke-width="0.9988456762551912" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="858.0234871232745" y1="424.2617189649999" x2="700.1078494485312" y2="393.3527675352126"></line><line stroke="#38bdf8" stroke-width="0.7161101579168596" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="801.573452340537" y1="542.8885413366817" x2="660.7695551958493" y2="508.3246646803004"></line><line stroke="#a78bfa" stroke-width="0.5988633271470354" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="628.6887497852189" y1="604.6664406533821" x2="513.7783397162622" y2="673.8496694760671"></line><line stroke="#1e3f5a" stroke-width="1.3005601879327329" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="644.2488079871528" y1="575.7371877602418" x2="609.7856706883729" y2="470.14210377237475"></line><line stroke="#a78bfa" stroke-width="1.1179941286914297" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="660.7695551958493" y1="508.3246646803004" x2="644.2488079871528" y2="575.7371877602418"></line><line stroke="#38bdf8" stroke-width="0.7750737798308828" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="765.4459710347816" y1="529.5365898223438" x2="644.2488079871528" y2="575.7371877602418"></line><line stroke="#1e3f5a" stroke-width="1.433340737206227" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="556.9730006608756" y1="377.8106559082528" x2="445.39956168374897" y2="383.1008088272617"></line><line stroke="#a78bfa" stroke-width="1.3388631792421668" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="691.071664480076" y1="333.5522776943882" x2="642.2729700874014" y2="277.03437754431206"></line><line stroke="#1e3f5a" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="660.7695551958493" y1="508.3246646803004" x2="457.85087172862654" y2="498.40327936819267"></line><line stroke="#38bdf8" stroke-width="1.5162020826061342" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="576.9745770083031" y1="433.2410318275608" x2="644.2488079871528" y2="575.7371877602418"></line><line stroke="#1e3f5a" stroke-width="1.5761538130118664" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="566.4425819909418" y1="490.25363129496" x2="464.0155127249235" y2="416.6412418068255"></line><line stroke="#38bdf8" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="445.39956168374897" y1="383.1008088272617" x2="609.7856706883729" y2="470.14210377237475"></line><line stroke="#1e3f5a" stroke-width="0.9783397713404094" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="644.2488079871528" y1="575.7371877602418" x2="765.4459710347816" y2="529.5365898223438"></line><line stroke="#a78bfa" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="380.00732380576056" y1="505.9666277258166" x2="464.0155127249235" y2="416.6412418068255"></line><line stroke="#38bdf8" stroke-width="0.758887948288592" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="642.2729700874014" y1="277.03437754431206" x2="766.2158109548885" y2="398.689838636173"></line><line stroke="#a78bfa" stroke-width="1.6837625833214254" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="642.2729700874014" y1="277.03437754431206" x2="727.3033260014777" y2="358.690820500209"></line><line stroke="#1e3f5a" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="658.9175141921899" y1="412.89907221005365" x2="517.1701575629156" y2="509.69271620935206"></line><line stroke="#38bdf8" stroke-width="0.9427922585414595" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="556.9730006608756" y1="377.8106559082528" x2="517.1701575629156" y2="509.69271620935206"></line><line stroke="#a78bfa" stroke-width="0.9529836409468263" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="644.2488079871528" y1="575.7371877602418" x2="517.1701575629156" y2="509.69271620935206"></line><line stroke="#1e3f5a" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="511.47102480515827" y1="433.6010055107934" x2="642.2729700874014" y2="277.03437754431206"></line><line stroke="#1e3f5a" stroke-width="1.1834219645294066" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="660.7695551958493" y1="508.3246646803004" x2="576.9745770083031" y2="433.2410318275608"></line><line stroke="#38bdf8" stroke-width="1.323442725883473" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="700.1078494485312" y1="393.3527675352126" x2="766.2158109548885" y2="398.689838636173"></line><line stroke="#1e3f5a" stroke-width="1.0023794067758802" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="566.4425819909418" y1="490.25363129496" x2="700.1078494485312" y2="393.3527675352126"></line><line stroke="#38bdf8" stroke-width="0.6600722148300119" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="691.071664480076" y1="333.5522776943882" x2="609.7856706883729" y2="470.14210377237475"></line><line stroke="#38bdf8" stroke-width="0.8410350983064474" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="609.7856706883729" y1="470.14210377237475" x2="644.2488079871528" y2="575.7371877602418"></line><line stroke="#a78bfa" stroke-width="1.0352563430835147" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="566.4425819909418" y1="490.25363129496" x2="511.47102480515827" y2="433.6010055107934"></line><line stroke="#a78bfa" stroke-width="1.2806512369777103" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="517.1701575629156" y1="509.69271620935206" x2="380.00732380576056" y2="505.9666277258166"></line><line stroke="#38bdf8" stroke-width="1.2895613837879794" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="766.2158109548885" y1="398.689838636173" x2="765.4459710347816" y2="529.5365898223438"></line><line stroke="#1e3f5a" stroke-width="0.5859085120479983" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="766.2158109548885" y1="398.689838636173" x2="660.7695551958493" y2="508.3246646803004"></line><line stroke="#a78bfa" stroke-width="1.0073601935147993" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="691.071664480076" y1="333.5522776943882" x2="587.2368528306883" y2="322.6064316404506"></line><line stroke="#1e3f5a" stroke-width="0.6177275275575222" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="464.0155127249235" y1="416.6412418068255" x2="587.2368528306883" y2="322.6064316404506"></line><line stroke="#1e3f5a" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="517.1701575629156" y1="509.69271620935206" x2="421.2941938767897" y2="622.1106201747264"></line><line stroke="#1e3f5a" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="556.9730006608756" y1="377.8106559082528" x2="517.1701575629156" y2="509.69271620935206"></line><line stroke="#1e3f5a" stroke-width="0.6386915435326045" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="658.9175141921899" y1="412.89907221005365" x2="642.2729700874014" y2="277.03437754431206"></line><line stroke="#38bdf8" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="801.573452340537" y1="542.8885413366817" x2="858.0234871232745" y2="424.2617189649999"></line><line stroke="#a78bfa" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-bidirectional)" opacity="0.7" style="cursor: pointer;" x1="727.3033260014777" y1="358.690820500209" x2="754.1037149985743" y2="570.5775051620274"></line><line stroke="#38bdf8" stroke-width="0.5943095081227576" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="566.4425819909418" y1="490.25363129496" x2="660.7695551958493" y2="508.3246646803004"></line><line stroke="#1e3f5a" stroke-width="0.5" stroke-opacity="0.7" marker-end="url(#arrow-forward)" opacity="0.7" style="cursor: pointer;" x1="609.7856706883729" y1="470.14210377237475" x2="700.1078494485312" y2="393.3527675352126"></line></g><g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(628.6887497852189,604.6664406533821)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Codex should use Flux …</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(421.2941938767897,622.1106201747264)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">User prefers dark mode…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(752.8071755265902,771.8165481703617)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Project uses Python 3.…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(513.7783397162622,673.8496694760671)"><circle r="10" fill="#e0f2fe" fill-opacity="0.9" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Flux Memory supports g…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(457.85087172862654,498.40327936819267)"><circle r="10" fill="#e0f2fe" fill-opacity="0.9" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Dashboard redesign tar…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(515.8799720809257,242.40663621075785)"><circle r="8" fill="#0e7490" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Force-directed graphs …</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(700.1078494485312,393.3527675352126)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Health signals track s…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(766.2158109548885,398.689838636173)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Conduit weights decay …</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(691.071664480076,333.5522776943882)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Grain promotion requir…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(754.1037149985743,570.5775051620274)"><circle r="10" fill="#e0f2fe" fill-opacity="0.9" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Shortcut creation impr…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(511.47102480515827,433.6010055107934)"><circle r="10" fill="#e0f2fe" fill-opacity="0.9" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Embedding generation i…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(464.0155127249235,416.6412418068255)"><circle r="8" fill="#0e7490" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">REST API runs on port …</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(445.39956168374897,383.1008088272617)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Retrieval success rate…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(727.3033260014777,358.690820500209)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Dormant grains are can…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(801.573452340537,542.8885413366817)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Feedback compliance dr…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(765.4459710347816,529.5365898223438)"><circle r="10" fill="#e0f2fe" fill-opacity="0.9" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Entry nodes act as fea…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(858.0234871232745,424.2617189649999)"><circle r="10" fill="#e0f2fe" fill-opacity="0.9" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Bidirectional conduits…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(566.4425819909418,490.25363129496)"><circle r="8" fill="#0e7490" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Core decay class persi…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(660.7695551958493,508.3246646803004)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Highway formation mark…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(380.00732380576056,505.9666277258166)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Context spread measure…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(642.2729700874014,277.03437754431206)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Orphan rate tracks dis…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(556.9730006608756,377.8106559082528)"><circle r="10" fill="#e0f2fe" fill-opacity="0.9" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Avg weight drop signal…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(609.7856706883729,470.14210377237475)"><circle r="10" fill="#e0f2fe" fill-opacity="0.9" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Fallback trigger indic…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(658.9175141921899,412.89907221005365)"><circle r="8" fill="#0e7490" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Promotion events mark …</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(644.2488079871528,575.7371877602418)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Avg hops per retrieval…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(517.1701575629156,509.69271620935206)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Conduit dissolution cl…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(246.34369865714342,381.98365419044006)"><circle r="8" fill="#22d3ee" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="12" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Working memory grains …</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(576.9745770083031,433.2410318275608)"><circle r="10" fill="#1e2d40" fill-opacity="0.4" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Ephemeral grains are s…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(587.2368528306883,322.6064316404506)"><circle r="10" fill="#1e2d40" fill-opacity="0.4" stroke="#7dd3fc" stroke-width="1.5"></circle><circle r="14" fill="none" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="3"></circle><text x="14" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">Weight threshold filte…</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(677.3017543299637,443.453260972379)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">user</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(433.4545857512053,570.1429316463693)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">system</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(619.4030946643481,330.12741825586625)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">codex</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(798.2517111945368,479.438089984083)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">flux_mcp</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(329.01335475799095,437.60539298708653)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">retrieval</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(707.2999819252091,510.5644804369375)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">feedback</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(542.2216430035758,575.388017713222)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">dashboard</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(690.0266318197504,282.739388654923)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">memory</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(707.6933012184418,662.4853263346589)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">context</text></g><g class="graph-node" opacity="1" style="cursor: pointer;" transform="translate(453.71664617899637,301.16932046216914)"><circle r="6" fill="#7c3aed" fill-opacity="0.9" stroke="transparent" stroke-width="1.5"></circle><text x="10" y="4" fill="#8899b0" font-size="9px" font-family="JetBrains Mono, monospace" pointer-events="none">session</text></g></g></g></svg>
+        <div id="graph-stats">nodes: <span id="gs-nodes">39</span> · edges: <span id="gs-edges">79</span></div>
+        <div id="graph-overlay">
+          <div class="legend-item"><div class="legend-dot" style="background:#22d3ee"></div>Grain (working)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#e0f2fe"></div>Grain (core)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>Entry</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#334155"></div>Dormant</div>
+        </div>
+        <div id="no-data-msg" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12" stroke-opacity="0.7"></line><line x1="12" y1="16" x2="12.01" y2="16" stroke-opacity="0.7"></line></svg>
+          No graph data
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div id="right-panel">
+
+      <!-- INSPECTOR -->
+      <div class="rpanel-section">
+        <div class="rpanel-header" onclick="toggleSection('inspector')">
+          <div class="rpanel-header-left">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65" stroke-opacity="0.7"></line></svg>
+            <span class="rpanel-title">Inspector</span>
+          </div>
+          <svg class="rpanel-chevron open" id="chev-inspector" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+        </div>
+        <div class="rpanel-body" id="body-inspector">
+          <div id="inspector-empty" style="">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="9" y1="9" x2="15" y2="15" stroke-opacity="0.7"></line><line x1="15" y1="9" x2="9" y2="15" stroke-opacity="0.7"></line></svg>
+            <div style="margin-top:8px">Click a node or edge<br>to inspect its properties</div>
+          </div>
+          <div id="inspector-content" style="display: none;">
+      <div style="margin-bottom:10px">
+        <div class="inspector-label" style="font-size:11px">session…</div>
+        <div style="color:var(--text-dim);font-size:10px;margin:3px 0">↓</div>
+        <div class="inspector-label" style="font-size:11px">Retrieval success rate measures useful m…</div>
+      </div>
+      <div class="inspector-rows">
+        <div class="inspector-row"><span class="ir-key">Weight</span><span class="ir-val">0.5800</span></div>
+        <div class="inspector-row"><span class="ir-key">Eff. weight</span><span class="ir-val">0.5684</span></div>
+        <div class="inspector-row"><span class="ir-key">Direction</span><span class="ir-val"><span class="tag tag-dim">forward</span></span></div>
+        <div class="inspector-row"><span class="ir-key">Decay class</span><span class="ir-val"><span class="tag tag-dim">ephemeral</span></span></div>
+        <div class="inspector-row"><span class="ir-key">Use count</span><span class="ir-val">18</span></div>
+        <div class="inspector-row"><span class="ir-key">Edge type</span><span class="ir-val"><span class="tag tag-dim">earned</span></span></div>
+      </div></div>
+        </div>
+      </div>
+
+      <!-- WARNINGS -->
+      <div class="rpanel-section">
+        <div class="rpanel-header" onclick="toggleSection('warnings')">
+          <div class="rpanel-header-left">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13" stroke-opacity="0.7"></line><line x1="12" y1="17" x2="12.01" y2="17" stroke-opacity="0.7"></line></svg>
+            <span class="rpanel-title">Warnings</span>
+            <span class="rpanel-count warn" id="warn-count">2</span>
+          </div>
+          <svg class="rpanel-chevron open" id="chev-warnings" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+        </div>
+        <div class="rpanel-body" id="body-warnings">
+          <div id="warnings-list" style="color:var(--text-dim);font-size:11px">
+      <div class="warning-card">
+        <div class="warning-signal">feedback_compliance_rate</div>
+        <div class="warning-msg">Main AI is not calling flux_feedback reliably. Prompt engineering issue.</div>
+        <div class="warning-val">Value: 0 · Range: &gt;= 0.8 · Severity: WARNING</div>
+      </div>
+      <div class="warning-card">
+        <div class="warning-signal">fallback_trigger_rate</div>
+        <div class="warning-msg">All retrievals are using fallback. Check retrieval routing logic.</div>
+        <div class="warning-val">Value: 1 · Range: &lt; 0.3 · Severity: WARNING</div>
+      </div></div>
+        </div>
+      </div>
+
+      <!-- HEALTH SIGNALS -->
+      <div class="rpanel-section">
+        <div class="rpanel-header" onclick="toggleSection('health')">
+          <div class="rpanel-header-left">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            <span class="rpanel-title">Health Signals</span>
+          </div>
+          <svg class="rpanel-chevron open" id="chev-health" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+        </div>
+        <div class="rpanel-body" id="body-health">
+          <div id="health-table" style="color:var(--text-dim);font-size:11px"><div class="health-group"><div class="health-group-label">Retrieval</div><div class="health-row">
+        <div class="health-dot" style="background:var(--green)"></div>
+        <div class="health-row-key">retrieval success rate</div>
+        <div class="health-row-val" style="color:var(--text)">74%</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--green)"></div>
+        <div class="health-row-key">avg hops per retrieval</div>
+        <div class="health-row-val" style="color:var(--text)">2.10</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--rose)"></div>
+        <div class="health-row-key">fallback trigger rate</div>
+        <div class="health-row-val" style="color:var(--rose)">100%</div>
+      </div></div><div class="health-group"><div class="health-group-label">Feedback</div><div class="health-row">
+        <div class="health-dot" style="background:var(--rose)"></div>
+        <div class="health-row-key">feedback compliance rate</div>
+        <div class="health-row-val" style="color:var(--rose)">0.00</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--green)"></div>
+        <div class="health-row-key">promotion events</div>
+        <div class="health-row-val" style="color:var(--text)">3.00</div>
+      </div></div><div class="health-group"><div class="health-group-label">Graph</div><div class="health-row">
+        <div class="health-dot" style="background:var(--rose)"></div>
+        <div class="health-row-key">highway count</div>
+        <div class="health-row-val" style="color:var(--rose)">0.00</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--rose)"></div>
+        <div class="health-row-key">highway growth rate</div>
+        <div class="health-row-val" style="color:var(--rose)">0.00</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--green)"></div>
+        <div class="health-row-key">orphan rate</div>
+        <div class="health-row-val" style="color:var(--text)">3%</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--green)"></div>
+        <div class="health-row-key">core grain count</div>
+        <div class="health-row-val" style="color:var(--text)">12.00</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--green)"></div>
+        <div class="health-row-key">avg conduit weight</div>
+        <div class="health-row-val" style="color:var(--text)">0.39</div>
+      </div></div><div class="health-group"><div class="health-group-label">Decay</div><div class="health-row">
+        <div class="health-dot" style="background:var(--green)"></div>
+        <div class="health-row-key">dormant grain rate</div>
+        <div class="health-row-val" style="color:var(--text)">2%</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--rose)"></div>
+        <div class="health-row-key">conduit dissolution rate</div>
+        <div class="health-row-val" style="color:var(--rose)">0.00</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--rose)"></div>
+        <div class="health-row-key">avg weight drop on failure</div>
+        <div class="health-row-val" style="color:var(--rose)">0.00</div>
+      </div><div class="health-row">
+        <div class="health-dot" style="background:var(--green)"></div>
+        <div class="health-row-key">shortcut creation rate</div>
+        <div class="health-row-val" style="color:var(--text)">5%</div>
+      </div></div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MOCK DATA ─────────────────────────────────────────────────────────────────
+const MOCK_HEALTH = {"status":"warning","signals":{"highway_count":{"value":0,"healthy":false},"core_grain_count":{"value":12,"healthy":true},"orphan_rate":{"value":0.03,"healthy":true},"avg_conduit_weight":{"value":0.385,"healthy":true},"dormant_grain_rate":{"value":0.02,"healthy":true},"highway_growth_rate":{"value":0,"healthy":false},"shortcut_creation_rate":{"value":0.05,"healthy":true},"conduit_dissolution_rate":{"value":0,"healthy":false},"avg_weight_drop_on_failure":{"value":0,"healthy":false},"promotion_events":{"value":3,"healthy":true},"avg_hops_per_retrieval":{"value":2.1,"healthy":true},"retrieval_success_rate":{"value":0.74,"healthy":true},"fallback_trigger_rate":{"value":1.0,"healthy":false},"feedback_compliance_rate":{"value":0.0,"healthy":false}},"active_warnings":[{"signal":"feedback_compliance_rate","severity":"WARNING","current_value":0.0,"healthy_range":">= 0.8","first_seen":"2026-04-23T13:43:13Z","last_seen":"2026-04-24T03:15:47Z","suggestion":"Main AI is not calling flux_feedback reliably. Prompt engineering issue."},{"signal":"fallback_trigger_rate","severity":"WARNING","current_value":1.0,"healthy_range":"< 0.3","first_seen":"2026-04-23T14:00:00Z","last_seen":"2026-04-24T03:15:47Z","suggestion":"All retrievals are using fallback. Check retrieval routing logic."}],"computed_at":"2026-04-24T03:15:47.162197+05:30"};
+
+const MOCK_GRAPH = (function() {
+  const grainTypes = ['working','working','working','core','core','ephemeral'];
+  const provenances = ['ai_stated','user_stated','inferred','ai_stated'];
+  const labels = [
+    'Codex should use Flux Memory MCP server for persistence',
+    'User prefers dark mode in all interfaces',
+    'Project uses Python 3.11+ for backend services',
+    'Flux Memory supports graph-based knowledge retrieval',
+    'Dashboard redesign targets operational clarity',
+    'Force-directed graphs improve dense node layout',
+    'Health signals track system reliability over time',
+    'Conduit weights decay unless reinforced via feedback',
+    'Grain promotion requires threshold crossing events',
+    'Shortcut creation improves retrieval hop efficiency',
+    'Embedding generation is synchronous at grain creation',
+    'REST API runs on port 7465 separate from dashboard',
+    'Retrieval success rate measures useful memory recall',
+    'Dormant grains are candidates for expiry cleanup',
+    'Feedback compliance drives reinforcement learning loop',
+    'Entry nodes act as feature anchors in the graph',
+    'Bidirectional conduits indicate mutual reinforcement',
+    'Core decay class persists across cleanup passes',
+    'Highway formation marks strongly connected clusters',
+    'Context spread measures grain reachability depth',
+    'Orphan rate tracks disconnected grain percentage',
+    'Avg weight drop signals failed retrieval patterns',
+    'Fallback trigger indicates missing primary routes',
+    'Promotion events mark grain tier advancement',
+    'Avg hops per retrieval measures path efficiency',
+    'Conduit dissolution clears low-weight dead edges',
+    'Working memory grains have intermediate persistence',
+    'Ephemeral grains are short-lived session facts',
+    'Weight threshold filtering removes noise from graph',
+  ];
+  const entryLabels = ['user','system','codex','flux_mcp','retrieval','feedback','dashboard','memory','context','session'];
+  const nodes = [];
+  const links = [];
+  for (let i = 0; i < 29; i++) {
+    nodes.push({id:`grain_${i}`,label:labels[i]||`Grain node ${i}`,node_type:'grain',decay_class:grainTypes[i%grainTypes.length],status:i<27?'active':'dormant',provenance:provenances[i%provenances.length],context_spread:Math.floor(Math.random()*5)});
+  }
+  for (let i = 0; i < 10; i++) {
+    nodes.push({id:`entry_${i}`,label:entryLabels[i],node_type:'entry',feature:entryLabels[i]});
+  }
+  // entry → grain links
+  for (let i = 0; i < 10; i++) {
+    const count = 2 + Math.floor(Math.random()*4);
+    for (let j = 0; j < count; j++) {
+      const gIdx = (i*3+j*7) % 29;
+      const w = 0.2 + Math.random()*0.7;
+      links.push({source:`entry_${i}`,target:`grain_${gIdx}`,weight:w,effective_weight:w*0.98,direction:'forward',decay_class:['working','core','ephemeral'][j%3],use_count:Math.floor(Math.random()*20),edge_type:'earned'});
+    }
+  }
+  // grain → grain links
+  for (let i = 0; i < 40; i++) {
+    const a = Math.floor(Math.random()*29), b = Math.floor(Math.random()*29);
+    if (a!==b) {
+      const w = 0.1 + Math.random()*0.6;
+      links.push({source:`grain_${a}`,target:`grain_${b}`,weight:w,effective_weight:w*0.97,direction:Math.random()>0.8?'bidirectional':'forward',decay_class:['working','core'][Math.floor(Math.random()*2)],use_count:Math.floor(Math.random()*10),edge_type:Math.random()>0.85?'shortcut':'earned'});
+    }
+  }
+  return {directed:true,multigraph:false,stats:{grains:29,active_grains:29,dormant_grains:0,entries:135,conduits:260,embeddings:29},nodes,links};
+})();
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let healthData = null, graphData = null;
+let simulation = null, svg = null, g = null, zoom = null;
+let activeFilters = {grain:true, entry:true, active:true, dormant:false};
+let weightThreshold = 0;
+let searchQuery = '';
+let selectedNode = null, selectedEdge = null;
+let simulationPaused = false;
+let autoRefreshTimer = null;
+let isAutoRefresh = false;
+
+// ── FETCH ─────────────────────────────────────────────────────────────────────
+async function fetchAll() {
+  try {
+    const [h, gr] = await Promise.all([
+      fetch('/api/health').then(r => r.json()).catch(() => MOCK_HEALTH),
+      fetch('/api/graph').then(r => r.json()).catch(() => MOCK_GRAPH),
+    ]);
+    healthData = h; graphData = gr;
+  } catch(e) {
+    healthData = MOCK_HEALTH; graphData = MOCK_GRAPH;
+  }
+  renderHealth();
+  renderGraph();
+  document.getElementById('loading').style.display = 'none';
+}
+
+function toggleAutoRefresh() {
+  isAutoRefresh = !isAutoRefresh;
+  const btn = document.getElementById('autorefresh-btn');
+  const lbl = document.getElementById('refresh-interval');
+  btn.classList.toggle('active', isAutoRefresh);
+  lbl.style.display = isAutoRefresh ? '' : 'none';
+  if (isAutoRefresh) {
+    autoRefreshTimer = setInterval(() => { fetchAll(); }, 30000);
+  } else {
+    clearInterval(autoRefreshTimer);
+  }
+}
+
+// ── HEALTH RENDER ─────────────────────────────────────────────────────────────
+function renderHealth() {
+  if (!healthData) return;
+  const h = healthData;
+
+  // Status badge
+  const badge = document.getElementById('status-badge');
+  const pulse = badge.querySelector('.pulse');
+  const statusText = document.getElementById('status-text');
+  badge.className = 'badge-' + h.status;
+  pulse.className = 'pulse pulse-' + (h.status==='healthy'?'green':h.status==='warning'?'amber':'rose');
+  statusText.textContent = h.status.toUpperCase();
+
+  // Computed at
+  const ca = new Date(h.computed_at);
+  document.getElementById('computed-at').textContent = ca.toLocaleTimeString();
+
+  // Metrics strip
+  const s = h.signals;
+  function pct(v) { return (v*100).toFixed(0) + '%'; }
+  const rs = s.retrieval_success_rate?.value ?? 0;
+  const fb = s.fallback_trigger_rate?.value ?? 0;
+  const fc = s.feedback_compliance_rate?.value ?? 0;
+  document.getElementById('m-retrieval').textContent = pct(rs);
+  document.getElementById('m-retrieval').className = 'm-value ' + (rs>=0.7?'c-green':'c-rose');
+  document.getElementById('m-fallback').textContent = pct(fb);
+  document.getElementById('m-fallback').className = 'm-value ' + (fb<0.3?'c-green':fb<0.7?'c-amber':'c-rose');
+  document.getElementById('m-feedback').textContent = pct(fc);
+  document.getElementById('m-feedback').className = 'm-value ' + (fc>=0.8?'c-green':'c-rose');
+
+  // Graph stats from graphData
+  if (graphData?.stats) {
+    const st = graphData.stats;
+    document.getElementById('m-grains').textContent = st.grains ?? '—';
+    document.getElementById('m-entries').textContent = st.entries ?? '—';
+    document.getElementById('m-conduits').textContent = st.conduits ?? '—';
+    document.getElementById('m-embed').textContent = st.embeddings ?? '—';
+  }
+
+  // Warnings
+  const warns = h.active_warnings || [];
+  document.getElementById('warn-count').textContent = warns.length;
+  document.getElementById('warn-count').className = 'rpanel-count' + (warns.length ? ' warn' : '');
+  const wl = document.getElementById('warnings-list');
+  if (!warns.length) {
+    wl.innerHTML = '<div style="color:var(--text-dim);font-size:11px">No active warnings</div>';
+  } else {
+    wl.innerHTML = warns.map(w => `
+      <div class="warning-card">
+        <div class="warning-signal">${w.signal}</div>
+        <div class="warning-msg">${w.suggestion}</div>
+        <div class="warning-val">Value: ${w.current_value} · Range: ${w.healthy_range} · Severity: ${w.severity}</div>
+      </div>`).join('');
+  }
+
+  // Health table
+  const groups = {
+    'Retrieval': ['retrieval_success_rate','avg_hops_per_retrieval','fallback_trigger_rate'],
+    'Feedback': ['feedback_compliance_rate','promotion_events'],
+    'Graph': ['highway_count','highway_growth_rate','orphan_rate','core_grain_count','avg_conduit_weight'],
+    'Decay': ['dormant_grain_rate','conduit_dissolution_rate','avg_weight_drop_on_failure','shortcut_creation_rate'],
+  };
+  let html = '';
+  for (const [group, keys] of Object.entries(groups)) {
+    html += `<div class="health-group"><div class="health-group-label">${group}</div>`;
+    for (const k of keys) {
+      const sig = s[k]; if (!sig) continue;
+      const ok = sig.healthy;
+      const v = sig.value;
+      const display = (v > 0 && v <= 1 && k.includes('rate')) ? (v*100).toFixed(0)+'%' : v.toFixed ? v.toFixed(2) : v;
+      html += `<div class="health-row">
+        <div class="health-dot" style="background:${ok?'var(--green)':'var(--rose)'}"></div>
+        <div class="health-row-key">${k.replace(/_/g,' ')}</div>
+        <div class="health-row-val" style="color:${ok?'var(--text)':'var(--rose)'}">${display}</div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  document.getElementById('health-table').innerHTML = html;
+}
+
+// ── GRAPH RENDER ──────────────────────────────────────────────────────────────
+function nodeColor(n) {
+  if (n.status === 'dormant') return '#1e2d40';
+  if (n.node_type === 'entry') return '#7c3aed';
+  if (n.decay_class === 'core') return '#e0f2fe';
+  if (n.decay_class === 'ephemeral') return '#0e7490';
+  return '#22d3ee';
+}
+function nodeRadius(n) {
+  if (n.node_type === 'entry') return 6;
+  if (n.decay_class === 'core') return 10;
+  return 8;
+}
+function edgeColor(l) {
+  if (l.direction === 'bidirectional') return '#a78bfa';
+  if (l.decay_class === 'core') return '#38bdf8';
+  if (l.decay_class === 'ephemeral') return '#1e3a4a';
+  return '#1e3f5a';
+}
+
+function getVisibleNodes() {
+  if (!graphData) return [];
+  return graphData.nodes.filter(n => {
+    const typeOk = (n.node_type === 'grain' && activeFilters.grain) || (n.node_type === 'entry' && activeFilters.entry);
+    const statusOk = (n.status === 'active' || !n.status) ? activeFilters.active : (n.status === 'dormant' ? activeFilters.dormant : true);
+    const searchOk = !searchQuery || n.label.toLowerCase().includes(searchQuery) || n.id.includes(searchQuery);
+    return typeOk && statusOk;
+  });
+}
+
+function getVisibleLinks(nodeIds) {
+  if (!graphData) return [];
+  const idSet = new Set(nodeIds);
+  return graphData.links.filter(l => {
+    const sid = typeof l.source === 'object' ? l.source.id : l.source;
+    const tid = typeof l.target === 'object' ? l.target.id : l.target;
+    return idSet.has(sid) && idSet.has(tid) && (l.effective_weight ?? l.weight ?? 0) >= weightThreshold;
+  });
+}
+
+function renderGraph() {
+  const container = document.getElementById('graph-container');
+  const W = container.clientWidth, H = container.clientHeight;
+  d3.select('#graph-svg').selectAll('*').remove();
+
+  if (!graphData || !graphData.nodes.length) {
+    document.getElementById('no-data-msg').style.display = 'flex';
+    return;
+  }
+  document.getElementById('no-data-msg').style.display = 'none';
+
+  const visNodes = getVisibleNodes();
+  const visLinks = getVisibleLinks(visNodes.map(n => n.id));
+
+  document.getElementById('gs-nodes').textContent = visNodes.length;
+  document.getElementById('gs-edges').textContent = visLinks.length;
+
+  // Deep copy so D3 can mutate
+  const nodes = visNodes.map(n => ({...n}));
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+  const links = visLinks.map(l => ({
+    ...l,
+    source: nodeMap.get(typeof l.source==='object'?l.source.id:l.source) || l.source,
+    target: nodeMap.get(typeof l.target==='object'?l.target.id:l.target) || l.target,
+  })).filter(l => l.source && l.target);
+
+  svg = d3.select('#graph-svg').attr('width', W).attr('height', H);
+
+  // Defs: arrowheads
+  const defs = svg.append('defs');
+  ['forward','bidirectional','selected'].forEach(t => {
+    defs.append('marker').attr('id','arrow-'+t)
+      .attr('viewBox','0 -4 8 8').attr('refX',14).attr('refY',0)
+      .attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4').attr('fill',t==='selected'?'#22d3ee':t==='bidirectional'?'#7c3aed':'#1e3f5a');
+  });
+
+  zoom = d3.zoom().scaleExtent([0.15, 4]).on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoom);
+  g = svg.append('g');
+
+  const link = g.append('g').selectAll('line').data(links).enter().append('line')
+    .attr('stroke', d => edgeColor(d))
+    .attr('stroke-width', d => Math.max(0.5, (d.effective_weight ?? 0.3) * 2.5))
+    .attr('stroke-opacity', 0.7)
+    .attr('marker-end', d => `url(#arrow-${d.direction==='bidirectional'?'bidirectional':'forward'})`)
+    .style('cursor','pointer')
+    .on('mouseenter', (event, d) => showEdgeTooltip(event, d))
+    .on('mousemove', moveTooltip)
+    .on('mouseleave', hideTooltip)
+    .on('click', (event, d) => { event.stopPropagation(); selectEdge(d); });
+
+  const node = g.append('g').selectAll('g').data(nodes).enter().append('g')
+    .attr('class','graph-node')
+    .style('cursor','pointer')
+    .call(d3.drag().on('start', dragStart).on('drag', dragged).on('end', dragEnd))
+    .on('mouseenter', (event, d) => showNodeTooltip(event, d))
+    .on('mousemove', moveTooltip)
+    .on('mouseleave', hideTooltip)
+    .on('click', (event, d) => { event.stopPropagation(); selectNode(d); });
+
+  node.append('circle')
+    .attr('r', d => nodeRadius(d))
+    .attr('fill', d => nodeColor(d))
+    .attr('fill-opacity', d => d.status==='dormant' ? 0.4 : 0.9)
+    .attr('stroke', d => d.decay_class==='core' ? '#7dd3fc' : 'transparent')
+    .attr('stroke-width', 1.5);
+
+  // Glow for core grains
+  node.filter(d => d.decay_class==='core').append('circle')
+    .attr('r', d => nodeRadius(d) + 4)
+    .attr('fill', 'none')
+    .attr('stroke', '#22d3ee')
+    .attr('stroke-opacity', 0.15)
+    .attr('stroke-width', 3);
+
+  node.append('text')
+    .text(d => d.node_type==='entry' ? d.label : d.label.slice(0,22) + (d.label.length>22?'…':''))
+    .attr('x', d => nodeRadius(d)+4)
+    .attr('y', 4)
+    .attr('fill', '#8899b0')
+    .attr('font-size', '9px')
+    .attr('font-family', 'JetBrains Mono, monospace')
+    .attr('pointer-events', 'none');
+
+  simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(d => {
+      const w = d.effective_weight ?? 0.3;
+      return 60 + (1-w)*60;
+    }).strength(0.4))
+    .force('charge', d3.forceManyBody().strength(-180).distanceMax(300))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(d => nodeRadius(d)+8))
+    .on('tick', () => {
+      link
+        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+  // Click away to deselect
+  svg.on('click', () => { deselectAll(); });
+
+  // Animate in
+  node.attr('opacity', 0).transition().duration(400).delay((d,i)=>i*8).attr('opacity',1);
+  link.attr('opacity', 0).transition().duration(300).delay(200).attr('opacity', 0.7);
+
+  if (simulationPaused) simulation.stop();
+}
+
+function dragStart(event, d) { if (!event.active) simulation?.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
+function dragged(event, d) { d.fx=event.x; d.fy=event.y; }
+function dragEnd(event, d) { if (!event.active) simulation?.alphaTarget(0); d.fx=null; d.fy=null; }
+
+function toggleSimulation() {
+  simulationPaused = !simulationPaused;
+  const icon = document.getElementById('pause-icon');
+  if (simulationPaused) {
+    simulation?.stop();
+    icon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+  } else {
+    simulation?.alphaTarget(0.1).restart();
+    setTimeout(()=>simulation?.alphaTarget(0), 2000);
+    icon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+  }
+}
+
+function resetView() {
+  if (!svg || !zoom) return;
+  svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+}
+
+// ── TOOLTIP ───────────────────────────────────────────────────────────────────
+const tt = document.getElementById('tooltip');
+function showTooltip(x, y, title, rows) {
+  document.getElementById('tt-title').textContent = title;
+  document.getElementById('tt-body').innerHTML = rows.map(([k,v])=>
+    `<div class="tt-row"><span class="tt-key">${k}</span><span class="tt-val">${v}</span></div>`
+  ).join('');
+  tt.style.opacity = '1';
+  positionTooltip(x, y);
+}
+function positionTooltip(x, y) {
+  const r = tt.getBoundingClientRect();
+  tt.style.left = (x + 14 + r.width > window.innerWidth ? x - r.width - 10 : x + 14) + 'px';
+  tt.style.top = Math.min(y - 10, window.innerHeight - r.height - 10) + 'px';
+}
+function moveTooltip(event) { positionTooltip(event.clientX, event.clientY); }
+function hideTooltip() { tt.style.opacity = '0'; }
+function showNodeTooltip(event, d) {
+  showTooltip(event.clientX, event.clientY, d.label.slice(0,60), [
+    ['type', d.node_type],
+    ...(d.decay_class ? [['decay', d.decay_class]] : []),
+    ...(d.status ? [['status', d.status]] : []),
+    ...(d.provenance ? [['provenance', d.provenance]] : []),
+    ...(d.context_spread !== undefined ? [['ctx spread', d.context_spread]] : []),
+  ]);
+}
+function showEdgeTooltip(event, d) {
+  const sid = typeof d.source==='object'?d.source.id:d.source;
+  const tid = typeof d.target==='object'?d.target.id:d.target;
+  showTooltip(event.clientX, event.clientY, `${sid.slice(0,10)}… → ${tid.slice(0,10)}…`, [
+    ['weight', (d.weight??0).toFixed(4)],
+    ['eff. weight', (d.effective_weight??0).toFixed(4)],
+    ['direction', d.direction],
+    ['decay', d.decay_class??'—'],
+    ['use count', d.use_count??0],
+    ['edge type', d.edge_type??'—'],
+  ]);
+}
+
+// ── SELECTION / INSPECTOR ─────────────────────────────────────────────────────
+function deselectAll() {
+  selectedNode = null; selectedEdge = null;
+  d3.selectAll('.graph-node circle').attr('stroke', d=>d.decay_class==='core'?'#7dd3fc':'transparent').attr('stroke-width', 1.5);
+  d3.selectAll('line').attr('stroke-opacity', 0.7);
+  d3.selectAll('.graph-node').attr('opacity', 1);
+  document.getElementById('inspector-empty').style.display = '';
+  document.getElementById('inspector-content').style.display = 'none';
+}
+
+function selectNode(d) {
+  selectedNode = d; selectedEdge = null;
+  // Highlight neighborhood
+  const neighborIds = new Set([d.id]);
+  d3.selectAll('line').each(function(l) {
+    const sid = typeof l.source==='object'?l.source.id:l.source;
+    const tid = typeof l.target==='object'?l.target.id:l.target;
+    if (sid===d.id || tid===d.id) { neighborIds.add(sid); neighborIds.add(tid); }
+  });
+  d3.selectAll('.graph-node').attr('opacity', n => neighborIds.has(n.id) ? 1 : 0.15);
+  d3.selectAll('line').attr('stroke-opacity', l => {
+    const sid = typeof l.source==='object'?l.source.id:l.source;
+    const tid = typeof l.target==='object'?l.target.id:l.target;
+    return (sid===d.id||tid===d.id) ? 1 : 0.05;
+  });
+  d3.selectAll('.graph-node circle').attr('stroke', n => n.id===d.id ? '#22d3ee' : n.decay_class==='core'?'#7dd3fc':'transparent').attr('stroke-width', n => n.id===d.id ? 2.5 : 1.5);
+  renderInspector(d, 'node');
+}
+
+function selectEdge(d) {
+  selectedEdge = d; selectedNode = null;
+  deselectAll();
+  renderInspector(d, 'edge');
+}
+
+function tagHtml(v, positive) {
+  const cls = v==='active'||v==='core'?'cyan':v==='entry'?'violet':v==='dormant'||positive===false?'rose':v==='working'?'cyan':v==='ephemeral'?'dim':'dim';
+  return `<span class="tag tag-${cls}">${v}</span>`;
+}
+
+function renderInspector(d, type) {
+  document.getElementById('inspector-empty').style.display = 'none';
+  const el = document.getElementById('inspector-content');
+  el.style.display = '';
+  if (type === 'node') {
+    const color = nodeColor(d);
+    const isEntry = d.node_type==='entry';
+    el.innerHTML = `
+      <div class="inspector-node-header">
+        <div class="inspector-icon" style="background:${color}22;border:1px solid ${color}44">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="${color}"><circle cx="12" cy="12" r="${isEntry?6:8}"/></svg>
+        </div>
+        <div>
+          <div class="inspector-label">${d.label}</div>
+          <div class="inspector-type">${d.node_type}${d.decay_class?' · '+d.decay_class:''}</div>
+        </div>
+      </div>
+      <div class="inspector-rows">
+        <div class="inspector-row"><span class="ir-key">ID</span><span class="ir-val" style="font-size:10px">${d.id}</span></div>
+        <div class="inspector-row"><span class="ir-key">Type</span><span class="ir-val">${tagHtml(d.node_type)}</span></div>
+        ${d.status?`<div class="inspector-row"><span class="ir-key">Status</span><span class="ir-val">${tagHtml(d.status)}</span></div>`:''}
+        ${d.decay_class?`<div class="inspector-row"><span class="ir-key">Decay class</span><span class="ir-val">${tagHtml(d.decay_class)}</span></div>`:''}
+        ${d.provenance?`<div class="inspector-row"><span class="ir-key">Provenance</span><span class="ir-val"><span class="tag tag-dim">${d.provenance}</span></span></div>`:''}
+        ${d.context_spread!==undefined?`<div class="inspector-row"><span class="ir-key">Context spread</span><span class="ir-val">${d.context_spread}</span></div>`:''}
+        ${d.feature?`<div class="inspector-row"><span class="ir-key">Feature</span><span class="ir-val">${d.feature}</span></div>`:''}
+      </div>`;
+  } else {
+    const sid = typeof d.source==='object'?d.source.id:d.source;
+    const tid = typeof d.target==='object'?d.target.id:d.target;
+    const sl = typeof d.source==='object'?d.source.label:sid;
+    const tl = typeof d.target==='object'?d.target.label:tid;
+    el.innerHTML = `
+      <div style="margin-bottom:10px">
+        <div class="inspector-label" style="font-size:11px">${(sl||sid).slice(0,40)}…</div>
+        <div style="color:var(--text-dim);font-size:10px;margin:3px 0">↓</div>
+        <div class="inspector-label" style="font-size:11px">${(tl||tid).slice(0,40)}…</div>
+      </div>
+      <div class="inspector-rows">
+        <div class="inspector-row"><span class="ir-key">Weight</span><span class="ir-val">${(d.weight??0).toFixed(4)}</span></div>
+        <div class="inspector-row"><span class="ir-key">Eff. weight</span><span class="ir-val">${(d.effective_weight??0).toFixed(4)}</span></div>
+        <div class="inspector-row"><span class="ir-key">Direction</span><span class="ir-val">${tagHtml(d.direction)}</span></div>
+        <div class="inspector-row"><span class="ir-key">Decay class</span><span class="ir-val">${tagHtml(d.decay_class??'working')}</span></div>
+        <div class="inspector-row"><span class="ir-key">Use count</span><span class="ir-val">${d.use_count??0}</span></div>
+        <div class="inspector-row"><span class="ir-key">Edge type</span><span class="ir-val"><span class="tag tag-dim">${d.edge_type??'earned'}</span></span></div>
+      </div>`;
+  }
+}
+
+// ── FILTERS / SEARCH ──────────────────────────────────────────────────────────
+function toggleFilter(key) {
+  activeFilters[key] = !activeFilters[key];
+  const btn = document.getElementById('f-'+key);
+  if (btn) btn.classList.toggle('active', activeFilters[key]);
+  renderGraph();
+}
+function onSearch(val) {
+  searchQuery = val.toLowerCase().trim();
+  if (searchQuery) {
+    // Highlight matching nodes
+    d3.selectAll('.graph-node').attr('opacity', d => {
+      return d.label.toLowerCase().includes(searchQuery) || d.id.includes(searchQuery) ? 1 : 0.1;
+    });
+  } else {
+    d3.selectAll('.graph-node').attr('opacity', 1);
+  }
+}
+function onWeightChange(val) {
+  weightThreshold = parseFloat(val);
+  document.getElementById('weight-val').textContent = parseFloat(val).toFixed(2);
+  renderGraph();
+}
+
+// ── PANEL COLLAPSE ────────────────────────────────────────────────────────────
+function toggleSection(id) {
+  const body = document.getElementById('body-'+id);
+  const chev = document.getElementById('chev-'+id);
+  const visible = body.style.display !== 'none';
+  body.style.display = visible ? 'none' : '';
+  if (chev) chev.classList.toggle('open', !visible);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  fetchAll();
+  window.addEventListener('resize', () => { if (graphData) renderGraph(); });
+});
+</script>
+
+
+<span id="PING_IFRAME_FORM_DETECTION" style="display: none;"></span></body></html>

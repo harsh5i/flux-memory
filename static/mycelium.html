@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flux Memory — Mycelium</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:#020408;font-family:'IBM Plex Mono',monospace}
+
+.shell{display:flex;flex-direction:column;height:100vh}
+
+/* TOP BAR */
+.topbar{
+  min-height:46px;display:flex;align-items:center;flex-shrink:0;z-index:20;
+  background:rgba(2,4,10,0.96);border-bottom:1px solid rgba(255,255,255,0.05);
+  padding:0 16px;gap:0;flex-wrap:wrap;
+}
+.tr{margin-left:auto;display:flex;align-items:center;gap:14px}
+.ld{width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 7px #4ade80;animation:blink 2.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.tmeta{font-size:10px;color:rgba(200,218,240,0.3);letter-spacing:.04em}
+
+/* METRICS STRIP */
+.metric-strip{display:flex;gap:6px;flex-wrap:wrap;padding:0 6px;align-items:center}
+.metric-pill{
+  display:flex;flex-direction:column;align-items:flex-start;
+  padding:3px 10px;background:rgba(20,26,38,0.7);border:1px solid rgba(80,120,200,0.18);
+  border-radius:5px;min-width:60px;
+}
+.metric-pill .ml{font-size:9px;color:rgba(200,218,240,0.4);text-transform:uppercase;letter-spacing:.4px}
+.metric-pill .mv{font-size:14px;font-weight:600;color:#dde3f0;font-family:'IBM Plex Mono',monospace;line-height:1.1;margin-top:1px}
+.metric-pill .mv.cy{color:#22d3ee} .metric-pill .mv.gn{color:#4ade80} .metric-pill .mv.am{color:#fbbf24} .metric-pill .mv.rs{color:#f43f5e}
+
+/* ACTIVITY FEED */
+.act-feed{
+  position:absolute;top:74px;left:18px;z-index:9;display:flex;flex-direction:column;gap:3px;width:300px;pointer-events:none;
+}
+.act-row{
+  display:flex;align-items:center;gap:7px;padding:4px 9px;
+  background:rgba(5,10,24,0.85);border:1px solid rgba(80,120,200,0.15);border-radius:3px;
+  font-size:9px;letter-spacing:.04em;animation:actin .22s ease forwards;opacity:0;
+}
+@keyframes actin{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+.act-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.act-type{flex-shrink:0;min-width:62px;font-weight:600}
+.act-txt{color:rgba(200,218,240,0.5);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-ts{color:rgba(200,218,240,0.22);flex-shrink:0;font-size:8px}
+
+/* NAV DROPDOWN */
+.flux-nav{position:relative;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;padding:0 12px;height:100%;color:#22d3ee;font-size:13px;letter-spacing:.06em}
+.flux-nav:hover{background:rgba(34,211,238,0.04)}
+.flux-nav-arrow{font-size:9px;opacity:.55;transform:translateY(-1px)}
+.flux-nav-menu{
+  position:absolute;top:calc(100% + 0px);left:0;min-width:200px;
+  background:rgba(8,12,22,0.97);border:1px solid rgba(80,120,200,0.25);
+  border-radius:4px;padding:4px 0;z-index:100;
+  box-shadow:0 8px 24px rgba(0,0,0,0.6);backdrop-filter:blur(10px);
+  display:none;font-family:'IBM Plex Mono',monospace;
+}
+.flux-nav.open .flux-nav-menu{display:block}
+.flux-nav-item{
+  display:block;padding:8px 14px;font-size:11px;letter-spacing:.04em;
+  color:rgba(200,218,240,0.6);text-decoration:none;transition:all .12s;
+  border-left:2px solid transparent;
+}
+.flux-nav-item:hover{background:rgba(80,120,200,0.12);color:#c8daf0}
+.flux-nav-item.active{color:#22d3ee;border-left-color:#22d3ee}
+.flux-nav-item-sub{font-size:9px;opacity:.4;display:block;margin-top:1px}
+
+/* CANVAS */
+.stage{flex:1;position:relative;overflow:hidden}
+canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+
+/* INFO OVERLAY (bottom-left) */
+.info-bar{
+  position:absolute;bottom:20px;left:20px;
+  display:flex;gap:20px;align-items:flex-end;pointer-events:none;z-index:10;
+}
+.info-stat{display:flex;flex-direction:column;gap:2px}
+.info-val{font-size:22px;font-weight:500;color:#c8daf0;letter-spacing:-.01em}
+.info-lbl{font-size:9px;color:rgba(200,218,240,0.3);text-transform:uppercase;letter-spacing:.12em}
+
+/* LEGEND overlay (bottom-right) */
+.legend{
+  position:absolute;bottom:20px;right:20px;
+  display:flex;flex-direction:column;gap:5px;z-index:10;pointer-events:none;
+}
+.leg-row{display:flex;align-items:center;gap:7px}
+.leg-dot{width:7px;height:7px;border-radius:50%}
+.leg-lbl{font-size:10px;color:rgba(200,218,240,0.35);letter-spacing:.04em}
+
+/* LOADING OVERLAY */
+.loading{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(2,4,10,0.85);z-index:50;font-size:11px;color:rgba(200,218,240,0.55);
+  letter-spacing:.08em;text-transform:uppercase;
+}
+.loading.hide{display:none}
+
+/* GRAIN DETAIL PANEL — right-side dock */
+.panel{
+  position:absolute;top:74px;right:14px;
+  transform:translateX(110%);
+  background:rgba(5,10,24,0.94);
+  border:1px solid rgba(255,255,255,0.1);
+  border-radius:10px;padding:18px 20px;
+  width:320px;z-index:30;max-height:calc(100vh - 100px);overflow-y:auto;
+  opacity:0;pointer-events:none;
+  transition:opacity .22s,transform .22s;
+  backdrop-filter:blur(18px);
+  box-shadow:0 12px 36px rgba(0,0,0,0.7);
+}
+.panel.open{opacity:1;pointer-events:all;transform:translateX(0)}
+.panel-cluster{font-size:9px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px;color:rgba(200,218,240,0.4)}
+.panel-content{font-size:13px;color:#c8daf0;line-height:1.6;margin-bottom:16px;word-break:break-word}
+.panel-metrics{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+.pm{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px 10px;text-align:center}
+.pm-v{font-size:16px;font-weight:500;color:#c8daf0}
+.pm-l{font-size:9px;color:rgba(200,218,240,0.35);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
+.panel-status{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.ps-dot{width:7px;height:7px;border-radius:50%}
+.ps-text{font-size:11px}
+.panel-close{
+  position:absolute;top:14px;right:16px;cursor:pointer;
+  font-size:16px;color:rgba(200,218,240,0.3);
+  background:none;border:none;transition:color .15s;
+}
+.panel-close:hover{color:#c8daf0}
+.panel-conns-title{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:rgba(200,218,240,0.3);margin-bottom:7px}
+.panel-conns{display:flex;flex-direction:column;gap:3px}
+.pc-row{
+  display:flex;align-items:center;gap:8px;
+  padding:5px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.06);
+  cursor:pointer;transition:background .15s;
+}
+.pc-row:hover{background:rgba(255,255,255,0.04)}
+.pc-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.pc-text{font-size:10px;color:rgba(200,218,240,0.65);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-type{font-size:9px;color:rgba(200,218,240,0.3)}
+
+/* TOOLTIP */
+.tip{
+  position:fixed;pointer-events:none;
+  background:rgba(4,9,22,0.97);border:1px solid rgba(255,255,255,0.12);
+  border-radius:7px;padding:9px 12px;
+  font-size:11px;color:#c8daf0;z-index:50;
+  opacity:0;transition:opacity .1s;
+  box-shadow:0 6px 24px rgba(0,0,0,0.7);max-width:260px;line-height:1.5;
+}
+.tip.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<div class="topbar">
+  <div class="flux-nav" id="flux-nav">
+    <span>flux/memory</span>
+    <span class="flux-nav-arrow">▾</span>
+    <div class="flux-nav-menu">
+      <a href="/" class="flux-nav-item">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
+      <a href="/mycelium" class="flux-nav-item active">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
+      <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
+    </div>
+  </div>
+  <div class="metric-strip" id="metric-strip">
+    <div class="metric-pill"><span class="ml">Grains</span><span class="mv cy" id="mp-grains">—</span></div>
+    <div class="metric-pill"><span class="ml">Entries</span><span class="mv" id="mp-entries">—</span></div>
+    <div class="metric-pill"><span class="ml">Conduits</span><span class="mv" id="mp-conduits">—</span></div>
+    <div class="metric-pill"><span class="ml">Embeds</span><span class="mv" id="mp-embed">—</span></div>
+    <div class="metric-pill"><span class="ml">Retrieval</span><span class="mv gn" id="mp-retrieval">—</span></div>
+    <div class="metric-pill"><span class="ml">Fallback</span><span class="mv rs" id="mp-fallback">—</span></div>
+    <div class="metric-pill"><span class="ml">Feedback</span><span class="mv rs" id="mp-feedback">—</span></div>
+  </div>
+  <div class="tr">
+    <div style="display:flex;align-items:center;gap:7px"><div class="ld"></div><span class="tmeta">live</span></div>
+    <span class="tmeta" id="hdr-meta">loading…</span>
+  </div>
+</div>
+
+<div class="stage">
+  <canvas id="c"></canvas>
+
+  <div class="loading" id="loading">loading flux graph…</div>
+
+  <div class="act-feed" id="act-feed"></div>
+
+  <div class="info-bar">
+    <div class="info-stat"><div class="info-val" id="i-grains">—</div><div class="info-lbl">grains</div></div>
+    <div class="info-stat"><div class="info-val" id="i-active" style="color:#4ade80">—</div><div class="info-lbl">active</div></div>
+    <div class="info-stat"><div class="info-val" id="i-links">—</div><div class="info-lbl">links</div></div>
+    <div class="info-stat"><div class="info-val" id="i-avg" style="color:#a78bfa">—</div><div class="info-lbl">avg weight</div></div>
+  </div>
+
+  <!-- Grain detail panel -->
+  <div class="panel" id="panel">
+    <button class="panel-close" id="panel-close">✕</button>
+    <div class="panel-cluster" id="p-cluster"></div>
+    <div class="panel-content" id="p-content"></div>
+    <div class="panel-metrics">
+      <div class="pm"><div class="pm-v" id="p-weight">—</div><div class="pm-l">weight</div></div>
+      <div class="pm"><div class="pm-v" id="p-acc">—</div><div class="pm-l">accesses</div></div>
+      <div class="pm"><div class="pm-v" id="p-conncnt">—</div><div class="pm-l">links</div></div>
+    </div>
+    <div class="panel-status"><div class="ps-dot" id="p-sdot"></div><div class="ps-text" id="p-status"></div></div>
+    <div class="panel-conns-title">connected grains</div>
+    <div class="panel-conns" id="p-conns"></div>
+  </div>
+</div>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+// ── NAV DROPDOWN ─────────────────────────────────────────────────────────────
+(function(){
+  const nav = document.getElementById('flux-nav');
+  nav.addEventListener('click', e => { e.stopPropagation(); nav.classList.toggle('open'); });
+  document.addEventListener('click', () => nav.classList.remove('open'));
+})();
+
+// ── PALETTE (cluster colors — labels populated from real cluster ids when present) ───
+const CL_PALETTE = [
+  {color:'#22d3ee',rgb:[34,211,238]},
+  {color:'#a78bfa',rgb:[167,139,250]},
+  {color:'#fb923c',rgb:[251,146,60]},
+  {color:'#f87171',rgb:[248,113,113]},
+  {color:'#4ade80',rgb:[74,222,128]},
+  {color:'#60a5fa',rgb:[96,165,250]},
+  {color:'#fbbf24',rgb:[251,191,36]},
+  {color:'#ec4899',rgb:[236,72,153]},
+];
+const CL = CL_PALETTE.slice(0,6).map((c,i) => ({...c, id:i, name:''})); // names filled from real clusters
+
+// ── DATA STATE ───────────────────────────────────────────────────────────────
+let grains = [];
+let conduits = [];
+let positions = [];
+let CTYPES = ['semantic','propagation','feedback','temporal'];
+
+function lcg(s){return()=>{s=(s*1664525+1013904223)&0xffffffff;return(s>>>0)/0xffffffff;}}
+const R = lcg(31);
+
+// ── DATA LOAD ────────────────────────────────────────────────────────────────
+async function loadData(){
+  const [graph, clusters] = await Promise.all([
+    fetch('/api/graph').then(r => r.json()),
+    fetch('/api/clusters').then(r => r.json()).catch(()=>({clusters:[]}))
+  ]);
+
+  // Build cluster_id → palette index. Top 6 clusters by size keep their labels; rest fold to slot 5.
+  const clusterList = (clusters.clusters||[]).slice().sort((a,b)=>(b.members||[]).length-(a.members||[]).length);
+  CL.forEach((c, i) => { c.name = ''; c.size = 0; });
+  const grainToCluster = {};
+  clusterList.forEach((c, idx) => {
+    const slot = Math.min(idx, CL.length-1);
+    if (idx < CL.length-1) { CL[slot].name = String(c.cluster_id); CL[slot].size = (c.members||[]).length; }
+    (c.members||[]).forEach(gid => { grainToCluster[gid] = slot; });
+  });
+  if (clusterList.length > CL.length-1) {
+    CL[CL.length-1].name = `+${clusterList.length-(CL.length-1)} more`;
+    CL[CL.length-1].size = clusterList.slice(CL.length-1).reduce((s,c)=>s+(c.members||[]).length,0);
+  }
+  // Fallback when no clusters exist: hash grain id → palette slot for color variety.
+  function hashSlot(s){let h=0;for(let i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;return Math.abs(h)%CL.length;}
+
+  // Filter grain nodes only (skip entries).
+  const grainNodes = (graph.nodes||[]).filter(n => n.node_type === 'grain');
+  const grainSet = new Set(grainNodes.map(n => n.id));
+
+  // Build per-grain conduit aggregates.
+  const incidentMaxW = {}; // grain_id -> max effective_weight
+  const incidentCount = {}; // grain_id -> count
+  const entryToGrains = {}; // entry_id -> [{gid, w}]
+  const directGrainEdges = []; // [{a, b, wt}]
+
+  (graph.links||[]).forEach(l => {
+    const ew = l.effective_weight ?? l.weight ?? 0;
+    if (grainSet.has(l.source) && grainSet.has(l.target)) {
+      directGrainEdges.push({a:l.source, b:l.target, wt:ew, type:l.edge_type||'shortcut'});
+      incidentMaxW[l.source] = Math.max(incidentMaxW[l.source]||0, ew);
+      incidentMaxW[l.target] = Math.max(incidentMaxW[l.target]||0, ew);
+      incidentCount[l.source] = (incidentCount[l.source]||0) + 1;
+      incidentCount[l.target] = (incidentCount[l.target]||0) + 1;
+    } else if (!grainSet.has(l.source) && grainSet.has(l.target)) {
+      // entry → grain
+      (entryToGrains[l.source] = entryToGrains[l.source] || []).push({gid:l.target, w:ew});
+      incidentMaxW[l.target] = Math.max(incidentMaxW[l.target]||0, ew);
+      incidentCount[l.target] = (incidentCount[l.target]||0) + 1;
+    }
+  });
+
+  // Synthesize grain-grain edges via shared entries (cap top-5 grains per entry to keep edges bounded).
+  const synthEdges = [];
+  Object.values(entryToGrains).forEach(arr => {
+    const top = arr.slice().sort((a,b)=>b.w-a.w).slice(0,5);
+    for (let i=0; i<top.length; i++) {
+      for (let j=i+1; j<top.length; j++) {
+        synthEdges.push({a:top[i].gid, b:top[j].gid, wt:(top[i].w+top[j].w)/2, type:'semantic'});
+      }
+    }
+  });
+
+  // Dedupe edges (a-b and b-a count as one).
+  const seen = new Set();
+  const allEdges = [];
+  [...directGrainEdges, ...synthEdges].forEach(e => {
+    const k = e.a < e.b ? `${e.a}|${e.b}` : `${e.b}|${e.a}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    allEdges.push(e);
+  });
+
+  // Build grains array.
+  grains = grainNodes.map((n, i) => ({
+    id: i,
+    rid: n.id,                     // real grain id
+    content: n.label || n.id.slice(0,12),
+    cid: grainToCluster[n.id] ?? hashSlot(n.id),
+    status: n.status || 'active',
+    weight: incidentMaxW[n.id] ?? 0.05,
+    acc: incidentCount[n.id] ?? 0,
+    decay_class: n.decay_class || 'working',
+    provenance: n.provenance || '—',
+    conns: []
+  }));
+
+  const ridToIdx = new Map(grains.map(g => [g.rid, g.id]));
+  conduits = [];
+  allEdges.forEach(e => {
+    const ai = ridToIdx.get(e.a), bi = ridToIdx.get(e.b);
+    if (ai === undefined || bi === undefined || ai === bi) return;
+    const cd = {a:ai, b:bi, wt:Math.max(0.05, Math.min(1, e.wt)), type:e.type||'semantic'};
+    conduits.push(cd);
+    grains[ai].conns.push(cd);
+    grains[bi].conns.push(cd);
+  });
+
+  document.getElementById('hdr-meta').textContent = `${grains.length} grains · ${conduits.length} links`;
+}
+
+// ── CANVAS ────────────────────────────────────────────────────────────────────
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const stage=canvas.parentElement;
+let W=0,H=0,DPR=devicePixelRatio||1;
+
+// Pan/zoom state — applied as world→screen via screen = (world - panOrigin)*scale + canvasCenter
+let viewScale = 1, viewX = 0, viewY = 0;          // viewX,viewY = pan offset in screen px
+let dragging = false, dragLast = null;
+
+function resize(){
+  W=stage.clientWidth;H=stage.clientHeight;
+  canvas.width=W*DPR;canvas.height=H*DPR;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (grains.length && !positions.length) runForce();
+}
+
+// world (force-layout coords) → screen (canvas px)
+function w2sX(x){return (x - W/2)*viewScale + W/2 + viewX;}
+function w2sY(y){return (y - H/2)*viewScale + H/2 + viewY;}
+// inverse: screen → world (used for hit-testing)
+function s2wX(sx){return (sx - W/2 - viewX)/viewScale + W/2;}
+function s2wY(sy){return (sy - H/2 - viewY)/viewScale + H/2;}
+
+// ── FORCE LAYOUT ──────────────────────────────────────────────────────────────
+function runForce(){
+  const n=grains.length;
+  if (!n) return;
+  // Density-aware iteration count: fewer iterations when n is large to keep cost bounded.
+  const iters = n < 80 ? 300 : n < 300 ? 200 : 120;
+  const repulseScale = n < 80 ? 2000 : n < 300 ? 900 : 350;
+
+  positions=grains.map((g,i)=>{
+    const ca=(g.cid/CL.length)*Math.PI*2-Math.PI/2;
+    const cr=Math.min(W,H)*0.28;
+    return {
+      x:W/2+Math.cos(ca)*cr+(R()-.5)*100,
+      y:H/2+Math.sin(ca)*cr*(H/W*1.1)+(R()-.5)*80,
+      vx:0,vy:0
+    };
+  });
+
+  for(let iter=0;iter<iters;iter++){
+    const alpha=1-iter/iters;
+    // Repulsion (O(n²) — fine for ~700 nodes given low iter count)
+    for(let i=0;i<n;i++){
+      for(let j=i+1;j<n;j++){
+        const dx=positions[j].x-positions[i].x;
+        const dy=positions[j].y-positions[i].y;
+        const d2=dx*dx+dy*dy+1;
+        const d=Math.sqrt(d2);
+        const f=Math.min(repulseScale/d2,8)*alpha;
+        const fx=dx/d*f, fy=dy/d*f;
+        positions[i].vx-=fx; positions[i].vy-=fy;
+        positions[j].vx+=fx; positions[j].vy+=fy;
+      }
+    }
+    conduits.forEach(c=>{
+      const pa=positions[c.a],pb=positions[c.b];
+      const dx=pb.x-pa.x,dy=pb.y-pa.y;
+      const d=Math.sqrt(dx*dx+dy*dy)+1;
+      const ideal=grains[c.a].cid===grains[c.b].cid?70:140;
+      const f=(d-ideal)*0.04*c.wt*alpha;
+      const fx=dx/d*f, fy=dy/d*f;
+      pa.vx+=fx; pa.vy+=fy;
+      pb.vx-=fx; pb.vy-=fy;
+    });
+    positions.forEach(p=>{
+      p.vx+=(W/2-p.x)*0.01*alpha;
+      p.vy+=(H/2-p.y)*0.01*alpha;
+    });
+    positions.forEach(p=>{
+      p.vx*=0.7; p.vy*=0.7;
+      p.x+=p.vx; p.y+=p.vy;
+      p.x=Math.max(40,Math.min(W-40,p.x));
+      p.y=Math.max(40,Math.min(H-40,p.y));
+    });
+  }
+}
+
+// ── AMBIENT PARTICLES ─────────────────────────────────────────────────────────
+const PTCL_N=220;
+const ptcls=Array.from({length:PTCL_N},()=>({
+  x:Math.random()*1440, y:Math.random()*900,
+  vx:(Math.random()-.5)*.12, vy:-(Math.random()*.25+.05),
+  r:Math.random()*1.2+.2,
+  a:Math.random()*.35+.05,
+  phase:Math.random()*Math.PI*2
+}));
+
+// ── TENDRIL PARTICLES ─────────────────────────────────────────────────────────
+let tflow=[];
+function rebuildFlow(){
+  tflow = conduits.map(c => ({
+    c,
+    particles: Array.from({length: Math.round(c.wt*6+2)}, (_,i)=>({
+      t: i/(Math.round(c.wt*6+2)),
+      speed: .003+c.wt*.004+Math.random()*.002,
+      a: Math.random()*.6+.4
+    }))
+  }));
+}
+
+// ── RIPPLES ───────────────────────────────────────────────────────────────────
+const ripples=[];
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+let t=0;
+let hoveredGrain=null;
+let selectedGrain=null;
+
+function draw(){
+  t+=0.015;
+  ctx.clearRect(0,0,W,H);
+
+  const bg=ctx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,Math.max(W,H)*.65);
+  bg.addColorStop(0,'#050b1a');bg.addColorStop(1,'#020408');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+
+  ptcls.forEach(p=>{
+    p.x+=p.vx; p.y+=p.vy;
+    if(p.y<-4){p.y=H+4;p.x=Math.random()*W;}
+    if(p.x<-4) p.x=W+4;
+    if(p.x>W+4) p.x=-4;
+    const tw=0.4+0.6*Math.sin(t*0.5+p.phase);
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(160,200,255,${p.a*tw*0.5})`;
+    ctx.fill();
+  });
+
+  if(!positions.length) {requestAnimationFrame(draw);return;}
+
+  // Apply pan/zoom transform for graph layer
+  ctx.save();
+  ctx.translate(W/2 + viewX, H/2 + viewY);
+  ctx.scale(viewScale, viewScale);
+  ctx.translate(-W/2, -H/2);
+
+  // Soft cluster aura (skip for very large n to keep frame budget)
+  if (grains.length < 250) {
+    grains.forEach((g,i)=>{
+      const p=positions[i];const cl=CL[g.cid];if(!cl)return;
+      const isFaded=selectedGrain!==null&&selectedGrain!==g.id&&!g.conns.some(c=>(c.a===selectedGrain||c.b===selectedGrain));
+      const alpha=(g.status==='archived'?.3:g.status==='dormant'?.5:1)*(isFaded?.12:1);
+      const aura=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,g.weight*110+60);
+      aura.addColorStop(0,`rgba(${cl.rgb.join(',')},${0.055*alpha})`);
+      aura.addColorStop(1,`rgba(${cl.rgb.join(',')},0)`);
+      ctx.beginPath();ctx.arc(p.x,p.y,g.weight*110+60,0,Math.PI*2);
+      ctx.fillStyle=aura;ctx.fill();
+    });
+  }
+
+  tflow.forEach(tf=>{
+    const ga=grains[tf.c.a],gb=grains[tf.c.b];if(!ga||!gb)return;
+    const pa=positions[tf.c.a],pb=positions[tf.c.b];if(!pa||!pb)return;
+    const isHighlit=selectedGrain!==null&&(tf.c.a===selectedGrain||tf.c.b===selectedGrain);
+    const isHovHighlit=hoveredGrain!==null&&(tf.c.a===hoveredGrain||tf.c.b===hoveredGrain);
+    const fade=selectedGrain!==null?isHighlit?.9:.04:hoveredGrain!==null?isHovHighlit?.5:.05:0.1;
+    if(fade<0.02) return;
+    const clA=CL[ga.cid]?.rgb||[120,150,200],clB=CL[gb.cid]?.rgb||[120,150,200];
+    const mid=bezierMid(pa,pb);
+    const tg=ctx.createLinearGradient(pa.x,pa.y,pb.x,pb.y);
+    tg.addColorStop(0,`rgba(${clA.join(',')},${fade*tf.c.wt})`);
+    tg.addColorStop(1,`rgba(${clB.join(',')},${fade*tf.c.wt*0.5})`);
+    ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.quadraticCurveTo(mid.cx,mid.cy,pb.x,pb.y);
+    ctx.strokeStyle=tg;ctx.lineWidth=(isHighlit||isHovHighlit)?1.2+tf.c.wt:.5+tf.c.wt*.5;ctx.stroke();
+
+    // Skip per-edge particles for huge graphs
+    if (grains.length < 300 || isHighlit || isHovHighlit) {
+      tf.particles.forEach(fp=>{
+        fp.t+=fp.speed;if(fp.t>1)fp.t-=1;
+        const {x,y}=bezierPt(pa,mid,pb,fp.t);
+        const pAlpha=fp.a*fade*(0.5+0.5*Math.sin(fp.t*Math.PI));
+        const pCol=lerpColor(clA,clB,fp.t);
+        ctx.beginPath();ctx.arc(x,y,1.5,0,Math.PI*2);
+        ctx.fillStyle=`rgba(${pCol[0]},${pCol[1]},${pCol[2]},${pAlpha})`;
+        ctx.fill();
+      });
+    }
+  });
+
+  for(let i=ripples.length-1;i>=0;i--){
+    const rp=ripples[i];
+    rp.r+=2.8;rp.alpha-=0.012;
+    if(rp.alpha<=0){ripples.splice(i,1);continue;}
+    ctx.beginPath();ctx.arc(rp.x,rp.y,rp.r,0,Math.PI*2);
+    ctx.strokeStyle=rp.color.replace(')',`,${rp.alpha})`).replace('rgb','rgba');
+    ctx.lineWidth=1;ctx.stroke();
+  }
+
+  grains.forEach((g,i)=>{
+    const p=positions[i];const cl=CL[g.cid]||CL[CL.length-1];
+    const isHov=hoveredGrain===g.id;
+    const isSel=selectedGrain===g.id;
+    const isFaded=selectedGrain!==null&&!isSel&&!g.conns.some(c=>(c.a===selectedGrain||c.b===selectedGrain));
+    const isHovFaded=hoveredGrain!==null&&!isHov&&!g.conns.some(c=>(c.a===hoveredGrain||c.b===hoveredGrain));
+
+    const globalAlpha=isFaded?.08:isHovFaded?.3:1;
+    const statusAlpha=g.status==='archived'?.3:g.status==='dormant'?.55:g.status==='quarantined'?.5:1;
+    const masterAlpha=globalAlpha*statusAlpha;
+
+    // Scale baseR down for dense graphs
+    const sizeScale = grains.length < 80 ? 1 : grains.length < 300 ? 0.7 : 0.45;
+    // Live activity pulse: decay each frame, boost on event
+    const evPulse = activeGrainPulse[i] || 0;
+    if (evPulse > 0) activeGrainPulse[i] = Math.max(0, evPulse - 0.012);
+    const baseR=(3+g.weight*9)*sizeScale*(1 + evPulse*0.6);
+    const pulse=1+Math.sin(t*1.4+i*0.7)*0.1*(g.status==='active'?1:.3);
+    const gr=baseR*pulse;
+
+    if (sizeScale > 0.5) {
+      const h1=ctx.createRadialGradient(p.x,p.y,gr*.5,p.x,p.y,gr*3.2);
+      h1.addColorStop(0,`rgba(${cl.rgb.join(',')},${0.18*masterAlpha})`);
+      h1.addColorStop(1,`rgba(${cl.rgb.join(',')},0)`);
+      ctx.beginPath();ctx.arc(p.x,p.y,gr*3.2,0,Math.PI*2);
+      ctx.fillStyle=h1;ctx.fill();
+    }
+
+    const h2=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,gr*1.6);
+    h2.addColorStop(0,`rgba(${cl.rgb.join(',')},${0.5*masterAlpha})`);
+    h2.addColorStop(0.5,`rgba(${cl.rgb.join(',')},${0.2*masterAlpha})`);
+    h2.addColorStop(1,`rgba(${cl.rgb.join(',')},0)`);
+    ctx.beginPath();ctx.arc(p.x,p.y,gr*1.6,0,Math.PI*2);
+    ctx.fillStyle=h2;ctx.fill();
+
+    ctx.beginPath();ctx.arc(p.x,p.y,gr,0,Math.PI*2);
+    ctx.fillStyle=`rgba(${cl.rgb.join(',')},${0.85*masterAlpha})`;
+    if(isHov||isSel){ctx.shadowColor=cl.color;ctx.shadowBlur=16;}
+    ctx.fill();ctx.shadowBlur=0;
+
+    const core=ctx.createRadialGradient(p.x-gr*.25,p.y-gr*.25,0,p.x,p.y,gr);
+    core.addColorStop(0,`rgba(255,255,255,${0.7*masterAlpha})`);
+    core.addColorStop(0.4,`rgba(255,255,255,${0.15*masterAlpha})`);
+    core.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.beginPath();ctx.arc(p.x,p.y,gr,0,Math.PI*2);
+    ctx.fillStyle=core;ctx.fill();
+
+    if(isSel||isHov){
+      ctx.beginPath();ctx.arc(p.x,p.y,gr+5+Math.sin(t*3)*2,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(${cl.rgb.join(',')},${isSel?.7:.4})`;
+      ctx.lineWidth=1.2;ctx.stroke();
+    }
+  });
+
+  // Floating labels — only top heaviest 20
+  if(!selectedGrain){
+    grains.slice().sort((a,b)=>b.weight-a.weight).slice(0,20)
+      .filter(g=>g.weight>0.5&&g.status==='active').forEach((g)=>{
+        const p=positions[g.id];if(!p)return;
+        const cl=CL[g.cid]||CL[CL.length-1];
+        const sizeScale = grains.length < 80 ? 1 : grains.length < 300 ? 0.7 : 0.45;
+        const gr=(3+g.weight*9)*sizeScale;
+        ctx.font='10px IBM Plex Mono';
+        ctx.fillStyle=`rgba(${cl.rgb.join(',')},0.45)`;
+        ctx.textAlign='center';ctx.textBaseline='top';
+        ctx.fillText(g.content.slice(0,30)+(g.content.length>30?'…':''),p.x,p.y+gr*3.4+2);
+        ctx.textAlign='left';ctx.textBaseline='alphabetic';
+      });
+  }
+
+  ctx.restore();  // pop pan/zoom transform
+
+  updateInfoBar();
+  requestAnimationFrame(draw);
+}
+
+function bezierMid(pa,pb){
+  const dx=pb.x-pa.x,dy=pb.y-pa.y;
+  const d=Math.sqrt(dx*dx+dy*dy);
+  const perp={x:-dy/d,y:dx/d};
+  const bend=(d*.25)*(Math.sin(pa.x*.01+pb.y*.01)>0?1:-1);
+  return {cx:(pa.x+pb.x)/2+perp.x*bend, cy:(pa.y+pb.y)/2+perp.y*bend};
+}
+
+function bezierPt(pa,mid,pb,t){
+  const mt=1-t;
+  return {x:mt*mt*pa.x+2*mt*t*mid.cx+t*t*pb.x, y:mt*mt*pa.y+2*mt*t*mid.cy+t*t*pb.y};
+}
+
+function lerpColor(ca,cb,t){
+  return [Math.round(ca[0]*(1-t)+cb[0]*t),Math.round(ca[1]*(1-t)+cb[1]*t),Math.round(ca[2]*(1-t)+cb[2]*t)];
+}
+
+function updateInfoBar(){
+  document.getElementById('i-grains').textContent=grains.length;
+  document.getElementById('i-active').textContent=grains.filter(g=>g.status==='active').length;
+  document.getElementById('i-links').textContent=conduits.length;
+  const avg=grains.length?grains.reduce((s,g)=>s+g.weight,0)/grains.length:0;
+  document.getElementById('i-avg').textContent=avg.toFixed(2);
+}
+
+// ── INTERACTION ───────────────────────────────────────────────────────────────
+const tip=document.getElementById('tip');
+
+function hitGrain(sx, sy){
+  // sx,sy = screen px → convert to world for distance check
+  const mx = s2wX(sx), my = s2wY(sy);
+  let best=null,bestD=Infinity;
+  const sizeScale = grains.length < 80 ? 1 : grains.length < 300 ? 0.7 : 0.45;
+  grains.forEach((g,i)=>{
+    const p=positions[i];if(!p)return;
+    const gr=(3+g.weight*9)*sizeScale+6/viewScale;  // grow hit radius for zoomed-out view
+    const d=(mx-p.x)**2+(my-p.y)**2;
+    if(d<gr*gr&&d<bestD){bestD=d;best=g;}
+  });
+  return best;
+}
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX-rect.left, sy = e.clientY-rect.top;
+  // Only start drag when clicking empty space (not a grain)
+  if (!hitGrain(sx, sy)) {
+    dragging = true;
+    dragLast = {x:e.clientX, y:e.clientY};
+    canvas.style.cursor = 'grabbing';
+  }
+});
+window.addEventListener('mouseup', () => {
+  if (dragging) { dragging = false; canvas.style.cursor = 'default'; }
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX-rect.left, sy = e.clientY-rect.top;
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  const newScale = Math.max(0.2, Math.min(5, viewScale * factor));
+  // Zoom toward cursor: keep world point under cursor stationary
+  const wx = s2wX(sx), wy = s2wY(sy);
+  viewScale = newScale;
+  viewX = sx - W/2 - (wx - W/2)*viewScale;
+  viewY = sy - H/2 - (wy - H/2)*viewScale;
+}, {passive:false});
+
+canvas.addEventListener('mousemove',e=>{
+  const rect=canvas.getBoundingClientRect();
+  const mouseX=e.clientX-rect.left,mouseY=e.clientY-rect.top;
+  if (dragging) {
+    viewX += e.clientX - dragLast.x;
+    viewY += e.clientY - dragLast.y;
+    dragLast = {x:e.clientX, y:e.clientY};
+    tip.classList.remove('show');
+    return;
+  }
+  const g=hitGrain(mouseX,mouseY);
+  hoveredGrain=g?g.id:null;
+  if(g){
+    canvas.style.cursor='pointer';
+    tip.classList.add('show');
+    const cl=CL[g.cid]||CL[CL.length-1];
+    const clLabel = cl.name ? `cluster ${cl.name.slice(0,8)}` : g.decay_class;
+    tip.innerHTML=`<div style="color:${cl.color};font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:5px">${escapeHtml(clLabel)}</div>
+      <div style="font-size:12px;line-height:1.5;margin-bottom:7px">${escapeHtml(g.content)}</div>
+      <div style="display:flex;gap:14px;font-size:10px;color:rgba(200,218,240,0.45)">
+        <span>weight <strong style="color:#c8daf0">${g.weight.toFixed(2)}</strong></span>
+        <span>${g.status}</span>
+        <span>${g.conns.length} links</span>
+      </div>`;
+    tip.style.left=(e.clientX+16)+'px';tip.style.top=(e.clientY-10)+'px';
+  } else {
+    canvas.style.cursor='default';
+    tip.classList.remove('show');
+  }
+});
+
+canvas.addEventListener('mouseleave',()=>{hoveredGrain=null;tip.classList.remove('show');});
+
+canvas.addEventListener('click',e=>{
+  const rect=canvas.getBoundingClientRect();
+  const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+  const g=hitGrain(mx,my);
+  if(g){
+    const p=positions[g.id];
+    const cl=CL[g.cid]||CL[CL.length-1];
+    ripples.push({x:p.x,y:p.y,r:5,maxR:80,alpha:0.6,color:cl.color});
+    openPanel(g);
+  } else {
+    closePanel();
+  }
+});
+
+// ── PANEL ─────────────────────────────────────────────────────────────────────
+function openPanel(g){
+  selectedGrain=g.id;
+  const cl=CL[g.cid]||CL[CL.length-1];
+  const clLabel = cl.name ? `cluster ${cl.name}` : 'unclustered';
+  document.getElementById('p-cluster').textContent=clLabel + ' · ' + g.decay_class;
+  document.getElementById('p-cluster').style.color=cl.color;
+  document.getElementById('p-content').textContent=g.content;
+  document.getElementById('p-weight').textContent=g.weight.toFixed(2);
+  document.getElementById('p-acc').textContent=g.acc;
+  document.getElementById('p-conncnt').textContent=g.conns.length;
+  const sc={active:'#4ade80',dormant:'#60a5fa',quarantined:'#fb923c',archived:'rgba(200,218,240,0.3)'};
+  document.getElementById('p-sdot').style.background=sc[g.status]||'#888';
+  document.getElementById('p-status').textContent=g.status + ' · ' + g.provenance;
+  document.getElementById('p-status').style.color=sc[g.status]||'#888';
+  const list=document.getElementById('p-conns');list.innerHTML='';
+  g.conns.slice(0,8).forEach(c=>{
+    const oid=c.a===g.id?c.b:c.a;const og=grains[oid];if(!og)return;
+    const ocl=CL[og.cid]||CL[CL.length-1];
+    const div=document.createElement('div');div.className='pc-row';
+    div.innerHTML=`<div class="pc-dot" style="background:${ocl.color}"></div>
+      <div class="pc-text">${escapeHtml(og.content.slice(0,42))}${og.content.length>42?'…':''}</div>
+      <div class="pc-type">${c.type}</div>`;
+    div.addEventListener('click',()=>{
+      const p=positions[oid];if(!p)return;
+      ripples.push({x:p.x,y:p.y,r:5,maxR:60,alpha:0.5,color:ocl.color});
+      openPanel(og);
+    });
+    list.appendChild(div);
+  });
+  document.getElementById('panel').classList.add('open');
+}
+
+function closePanel(){
+  selectedGrain=null;
+  document.getElementById('panel').classList.remove('open');
+}
+document.getElementById('panel-close').addEventListener('click',closePanel);
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
+
+// ── METRIC STRIP UPDATE ──────────────────────────────────────────────────────
+async function updateMetrics(){
+  try {
+    const [health, graph] = await Promise.all([
+      fetch('/api/health').then(r=>r.json()).catch(()=>null),
+      fetch('/api/graph').then(r=>r.json()).catch(()=>null),
+    ]);
+    if (graph && graph.stats) {
+      document.getElementById('mp-grains').textContent = graph.stats.grains ?? '—';
+      document.getElementById('mp-entries').textContent = graph.stats.entries ?? '—';
+      document.getElementById('mp-conduits').textContent = graph.stats.conduits ?? '—';
+      document.getElementById('mp-embed').textContent = graph.stats.embeddings ?? '—';
+    }
+    if (health && health.signals) {
+      const s = health.signals;
+      const fmtPct = v => v == null ? '—' : (v*100).toFixed(0)+'%';
+      document.getElementById('mp-retrieval').textContent = fmtPct(s.retrieval_success_rate?.value);
+      document.getElementById('mp-fallback').textContent  = fmtPct(s.fallback_trigger_rate?.value);
+      document.getElementById('mp-feedback').textContent  = fmtPct(s.feedback_compliance_rate?.value);
+    }
+  } catch(e) { /* ignore */ }
+}
+
+// ── LIVE EVENT POLLING ───────────────────────────────────────────────────────
+let lastEventTs = '';
+const ACT_COL = {
+  retrieve:'#22d3ee', store:'#a78bfa', feedback:'#4ade80',
+  reinforce:'#4ade80', penalize:'#f87171', shortcut:'#fbbf24',
+};
+
+async function pollEvents(){
+  try {
+    const data = await fetch('/api/events?limit=50').then(r=>r.json());
+    const events = (data.events||[]).slice().reverse();
+    for (const ev of events) {
+      if (lastEventTs && ev.timestamp <= lastEventTs) continue;
+      lastEventTs = ev.timestamp;
+      handleEvent(ev);
+    }
+  } catch(e) {}
+}
+
+function handleEvent(ev){
+  const d = ev.data || {};
+  let type = null, gids = [];
+  const gIdx = rid => {
+    const g = grains.find(x => x.rid === rid);
+    return g ? g.id : null;
+  };
+
+  if (ev.category === 'retrieval' && ev.event === 'grains_returned') {
+    type = 'retrieve';
+    if (Array.isArray(d.activated_grain_ids)) gids = d.activated_grain_ids.map(gIdx).filter(i=>i!==null);
+  } else if (ev.category === 'write' && ev.event === 'grain_stored') {
+    type = 'store';
+    const i = gIdx(d.grain_id); if (i !== null) gids = [i];
+  } else if (ev.event === 'feedback_received') {
+    type = d.action === 'penalized' ? 'penalize' : d.action === 'reinforced' ? 'reinforce' : 'feedback';
+    const i = gIdx(d.grain_id); if (i !== null) gids = [i];
+  } else if (ev.event === 'conduit_reinforced') {
+    type = 'reinforce';
+    [d.from_id, d.to_id].forEach(id => { const i = gIdx(id); if (i !== null) gids.push(i); });
+  } else if (ev.event === 'conduit_penalized') {
+    type = 'penalize';
+    [d.from_id, d.to_id].forEach(id => { const i = gIdx(id); if (i !== null) gids.push(i); });
+  } else if (ev.event === 'shortcut_created' || ev.event === 'highway_formed') {
+    type = 'shortcut';
+    [d.from_id, d.to_id].forEach(id => { const i = gIdx(id); if (i !== null) gids.push(i); });
+  } else {
+    return;
+  }
+
+  if (!gids.length) return;
+  const col = ACT_COL[type] || '#22d3ee';
+
+  // Pulse: ripple at each grain position + brighten by setting transient activity
+  gids.forEach(idx => {
+    const p = positions[idx]; if (!p) return;
+    ripples.push({x:p.x, y:p.y, r:5, maxR:60, alpha:0.7, color:col});
+    activeGrainPulse[idx] = (activeGrainPulse[idx] || 0) + 1.0; // boost
+  });
+
+  addActFeed(type, col, gids);
+}
+
+const activeGrainPulse = {}; // grain_idx → pulse strength (decays)
+
+function addActFeed(type, col, gids){
+  const feed = document.getElementById('act-feed');
+  const g = grains[gids[0]];
+  const row = document.createElement('div'); row.className='act-row';
+  const now = new Date();
+  const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  row.innerHTML = `<div class="act-dot" style="background:${col};box-shadow:0 0 4px ${col}aa"></div><span class="act-type" style="color:${col}">${type}</span><span class="act-txt">${escapeHtml(g?g.content.slice(0,40):'—')}${gids.length>1?` +${gids.length-1}`:''}</span><span class="act-ts">${ts}</span>`;
+  feed.prepend(row);
+  while (feed.children.length > 6) feed.removeChild(feed.lastChild);
+}
+
+// ── INIT + REFRESH LOOP ───────────────────────────────────────────────────────
+async function init(){
+  await loadData();
+  resize();
+  if (!positions.length) runForce();
+  rebuildFlow();
+  document.getElementById('loading').classList.add('hide');
+  draw();
+  // Seed lastEventTs to current latest so we only react to new events
+  try {
+    const data = await fetch('/api/events?limit=1').then(r=>r.json());
+    if (data.events && data.events.length) lastEventTs = data.events[0].timestamp;
+  } catch(e) {}
+  updateMetrics();
+  setInterval(updateMetrics, 5000);
+  setInterval(pollEvents, 2000);
+  setInterval(refreshSoft, 60000);
+}
+
+async function refreshSoft(){
+  try {
+    const prev = new Map(grains.map(g => [g.rid, g.id]));
+    const oldPositions = positions.slice();
+    await loadData();
+    const newRids = new Set(grains.map(g => g.rid));
+    const keptCount = [...newRids].filter(r => prev.has(r)).length;
+    const overlap = grains.length ? keptCount / grains.length : 0;
+    if (overlap < 0.85) {
+      runForce();
+    } else {
+      positions = grains.map(g => {
+        const oldIdx = prev.get(g.rid);
+        if (oldIdx !== undefined && oldPositions[oldIdx]) return {...oldPositions[oldIdx]};
+        return {x:W/2+(Math.random()-.5)*200, y:H/2+(Math.random()-.5)*200, vx:0, vy:0};
+      });
+    }
+    rebuildFlow();
+  } catch (err) {
+    console.error('refresh failed', err);
+  }
+}
+
+window.addEventListener('resize',()=>resize());
+init();
+</script>
+</body>
+</html>

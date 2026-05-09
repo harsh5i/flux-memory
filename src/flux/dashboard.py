@@ -11,10 +11,23 @@ from __future__ import annotations
 import json
 import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 logger = logging.getLogger(__name__)
+
+_STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
+
+
+def _load_view(name: str) -> bytes:
+    """Load a static view template by file name. Caches None on first miss."""
+    path = _STATIC_DIR / name
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        logger.warning("view template missing: %s", path)
+        return b"<h1>Template not found: " + name.encode() + b"</h1>"
 
 _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
 
@@ -22,7 +35,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Flux Memory — Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="/static/d3.min.js"></script>
 <style>
   :root {
     --bg: #080a0e;
@@ -62,10 +75,28 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
     flex-shrink: 0;
     flex-wrap: wrap;
   }
-  #topbar .brand { display: flex; align-items: center; gap: 8px; margin-right: 4px; }
+  #topbar .brand { display: flex; align-items: center; gap: 8px; margin-right: 4px; position: relative; cursor: pointer; user-select: none; padding: 4px 6px; border-radius: 4px; transition: background 0.15s; }
+  #topbar .brand:hover { background: rgba(34,211,238,0.06); }
   #topbar .brand svg { flex-shrink: 0; }
   #topbar .brand-name { font-size: 14px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); }
   #topbar .brand-sub { font-size: 11px; color: var(--text-muted); }
+  #topbar .brand-arrow { font-size: 9px; opacity: 0.55; margin-left: 2px; transform: translateY(-1px); color: var(--text-muted); }
+  .flux-nav-menu {
+    position: absolute; top: calc(100% + 4px); left: 0; min-width: 220px;
+    background: rgba(8,12,22,0.97); border: 1px solid rgba(80,120,200,0.25);
+    border-radius: 4px; padding: 4px 0; z-index: 100;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    display: none; font-family: var(--font-mono);
+  }
+  #topbar .brand.open .flux-nav-menu { display: block; }
+  .flux-nav-item {
+    display: block; padding: 8px 14px; font-size: 11px; letter-spacing: 0.04em;
+    color: rgba(200,218,240,0.6); text-decoration: none; transition: all 0.12s;
+    border-left: 2px solid transparent;
+  }
+  .flux-nav-item:hover { background: rgba(80,120,200,0.12); color: #c8daf0; }
+  .flux-nav-item.active { color: var(--cyan); border-left-color: var(--cyan); }
+  .flux-nav-item-sub { font-size: 9px; opacity: 0.4; display: block; margin-top: 1px; font-weight: 400; }
   #status-badge {
     display: flex; align-items: center; gap: 5px;
     padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600;
@@ -448,7 +479,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
 <div id="app">
   <!-- TOP BAR -->
   <div id="topbar">
-    <div class="brand">
+    <div class="brand" id="flux-brand-nav">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
         <circle cx="12" cy="12" r="10" stroke="#22d3ee" stroke-width="1.5" opacity="0.3"></circle>
         <circle cx="12" cy="12" r="6" stroke="#22d3ee" stroke-width="1.5" opacity="0.6"></circle>
@@ -461,6 +492,12 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
       <div>
         <div class="brand-name">Flux Memory</div>
         <div class="brand-sub" id="instance-name">instance</div>
+      </div>
+      <span class="brand-arrow">▾</span>
+      <div class="flux-nav-menu">
+        <a href="/" class="flux-nav-item active">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
+        <a href="/mycelium" class="flux-nav-item">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
+        <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
       </div>
     </div>
     <div id="status-badge" class="badge-warning">
@@ -728,7 +765,8 @@ function renderHealth() {
 
   // Warnings
   const warns = (h.active_warnings || []).filter(w => !String(w.signal || '').startsWith('feedback_compliance_rate:'));
-  const callerFeedback = (h.caller_feedback || []).filter(c => (Number(c.expected) || 0) > 0);
+  const allCallers = (h.caller_feedback || []).filter(c => (Number(c.expected) || 0) > 0);
+  const callerFeedback = allCallers.filter(c => c.healthy !== true && (Number(c.rate) || 0) < 0.8);
   document.getElementById('warn-count').textContent = warns.length;
   document.getElementById('warn-count').className = 'rpanel-count' + (warns.length ? ' warn' : '');
   const wl = document.getElementById('warnings-list');
@@ -741,20 +779,20 @@ function renderHealth() {
         <div class="warning-msg">${esc(w.suggestion)}</div>
         <div class="warning-val">Value: ${esc(w.current_value)} · Range: ${esc(w.healthy_range)} · Severity: ${esc(w.severity)}</div>
       </div>`).join('');
+    const healthyCount = allCallers.length - callerFeedback.length;
     const callerHtml = callerFeedback.length ? `
       <div class="caller-compliance">
-        <div class="caller-title">Caller Compliance</div>
+        <div class="caller-title">Non-compliant Callers <span style="color:var(--text-dim);font-size:10px">(${healthyCount}/${allCallers.length} OK)</span></div>
         ${callerFeedback.map(c => {
           const rate = Number(c.rate) || 0;
-          const healthy = c.healthy === true || rate >= 0.8;
           const displayName = c.display_name || c.caller_id || 'Unknown caller';
-          return `<div class="caller-row ${healthy ? 'good' : 'bad'}">
+          return `<div class="caller-row bad">
             <div class="caller-name" title="${esc(c.caller_id)}">${esc(displayName)}</div>
-            <div class="caller-rate" style="color:${healthy?'var(--green)':'var(--rose)'}">${pct(rate)}</div>
-            <div class="caller-meta">${esc(c.received)} / ${esc(c.expected)} feedback · ${esc(c.missing)} missing · ${esc(c.retrievals)} retrievals</div>
+            <div class="caller-rate" style="color:var(--rose)">${pct(rate)}</div>
+            <div class="caller-meta">${esc(c.received)}/${esc(c.expected)} fb · ${esc(c.missing)} missing</div>
           </div>`;
         }).join('')}
-      </div>` : '';
+      </div>` : (allCallers.length ? `<div class="caller-compliance"><div class="caller-title" style="color:var(--green)">All ${allCallers.length} callers compliant ✅</div></div>` : '');
     wl.innerHTML = warningHtml + callerHtml;
   }
 
@@ -830,19 +868,36 @@ function nodeMatchesSearch(n) {
   return haystack.includes(searchQuery);
 }
 
+const MAX_GRAPH_NODES = 2500;
+const MAX_GRAPH_LINKS = 5000;
 function getVisibleNodes() {
   if (!graphData) return [];
-  return graphData.nodes.filter(nodePassesFilters);
+  let nodes = graphData.nodes.filter(nodePassesFilters);
+  if (nodes.length > MAX_GRAPH_NODES) {
+    // Keep all core grains, then working, then active entries by weight
+    const core = nodes.filter(n => n.decay_class === 'core');
+    const working = nodes.filter(n => n.status === 'active' && n.decay_class !== 'core' && n.node_type === 'grain');
+    const activeEntries = nodes.filter(n => n.node_type === 'entry' && (n.use_count || 0) > 3);
+    const rest = nodes.filter(n => !core.includes(n) && !working.includes(n) && !activeEntries.includes(n));
+    nodes = [...core, ...working, ...activeEntries, ...rest].slice(0, MAX_GRAPH_NODES);
+  }
+  return nodes;
 }
 
 function getVisibleLinks(nodeIds) {
   if (!graphData) return [];
   const idSet = new Set(nodeIds);
-  return graphData.links.filter(l => {
+  let links = graphData.links.filter(l => {
     const sid = typeof l.source === 'object' ? l.source.id : l.source;
     const tid = typeof l.target === 'object' ? l.target.id : l.target;
     return idSet.has(sid) && idSet.has(tid) && (l.effective_weight ?? l.weight ?? 0) >= weightThreshold;
   });
+  if (links.length > MAX_GRAPH_LINKS) {
+    // Keep highest-weight links
+    links.sort((a, b) => (b.effective_weight ?? b.weight ?? 0) - (a.effective_weight ?? a.weight ?? 0));
+    links = links.slice(0, MAX_GRAPH_LINKS);
+  }
+  return links;
 }
 
 
@@ -1224,7 +1279,8 @@ function edgeMatchesSearch(edge) {
 
 function renderGraph() {
   const container = document.getElementById('graph-container');
-  const W = container.clientWidth, H = container.clientHeight;
+  const W = container.clientWidth || window.innerWidth;
+  const H = container.clientHeight || Math.max(window.innerHeight - 86, 300);
 
   if (!graphData || !(graphData.nodes || []).length) {
     document.getElementById('no-data-msg').style.display = 'flex';
@@ -1234,7 +1290,7 @@ function renderGraph() {
 
   const visNodes = getVisibleNodes();
   const visLinks = getVisibleLinks(visNodes.map(n => n.id));
-  document.getElementById('gs-nodes').textContent = visNodes.length;
+  document.getElementById('gs-nodes').textContent = visNodes.length + (graphData.nodes.filter(nodePassesFilters).length > MAX_GRAPH_NODES ? `/${graphData.nodes.filter(nodePassesFilters).length}` : '');
   document.getElementById('gs-edges').textContent = visLinks.length;
 
   // Deep copy so D3 can mutate
@@ -1812,6 +1868,17 @@ window.addEventListener('load', () => {
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape' && (selectedNode || selectedEdge)) deselectAll();
   });
+  // Brand dropdown navigation
+  const brandNav = document.getElementById('flux-brand-nav');
+  if (brandNav) {
+    brandNav.addEventListener('click', e => {
+      // Don't toggle when clicking a link inside the menu
+      if (e.target.closest('a')) return;
+      e.stopPropagation();
+      brandNav.classList.toggle('open');
+    });
+    document.addEventListener('click', () => brandNav.classList.remove('open'));
+  }
 });
 </script>
 
@@ -2027,6 +2094,10 @@ def run_dashboard(
             path = parsed.path
             if path == "/" or path == "/index.html":
                 self._send(200, "text/html; charset=utf-8", _DASHBOARD_HTML.encode())
+            elif path == "/mycelium":
+                self._send(200, "text/html; charset=utf-8", _load_view("mycelium.html"))
+            elif path == "/globe":
+                self._send(200, "text/html; charset=utf-8", _load_view("globe.html"))
             elif path == "/mobile-preview":
                 self._send(200, "text/html; charset=utf-8", _MOBILE_PREVIEW_HTML.encode())
             elif path == "/api/health":
@@ -2051,6 +2122,15 @@ def run_dashboard(
                     limit = 25
                 data = _recent_events(store, limit=limit)
                 self._send(200, "application/json", json.dumps(data, default=str).encode())
+            elif path.startswith("/static/"):
+                static_dir = Path(__file__).resolve().parent.parent.parent / "static"
+                file_name = path[len("/static/"):]
+                file_path = static_dir / file_name
+                if file_path.exists() and file_path.is_file():
+                    ct = "application/javascript" if file_name.endswith(".js") else "text/plain"
+                    self._send(200, ct, file_path.read_bytes())
+                else:
+                    self._send(404, "text/plain", f"File not found: {file_name}".encode())
             elif path == "/favicon.ico":
                 self._send(204, "image/x-icon", b"")
             else:

@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flux Memory — Globe</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; width: 100%; overflow: hidden; background: #030610; font-family: 'IBM Plex Mono', monospace; }
+
+.shell { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+
+.topbar {
+  min-height: 46px; flex-shrink: 0;
+  display: flex; align-items: center; flex-wrap: wrap;
+  background: rgba(3,6,16,0.98);
+  border-bottom: 1px solid rgba(50,90,200,0.18);
+  padding: 0 16px; z-index: 20;
+}
+.topbar-r { margin-left: auto; display: flex; align-items: center; gap: 20px; }
+.metric-strip{display:flex;gap:6px;flex-wrap:wrap;padding:0 6px;align-items:center}
+.metric-pill{
+  display:flex;flex-direction:column;align-items:flex-start;
+  padding:3px 10px;background:rgba(20,26,38,0.7);border:1px solid rgba(80,120,200,0.18);
+  border-radius:5px;min-width:60px;
+}
+.metric-pill .ml{font-size:9px;color:rgba(130,165,255,0.45);text-transform:uppercase;letter-spacing:.4px}
+.metric-pill .mv{font-size:14px;font-weight:600;color:#dde3f0;font-family:'IBM Plex Mono',monospace;line-height:1.1;margin-top:1px}
+.metric-pill .mv.cy{color:#4477ff} .metric-pill .mv.gn{color:#4ade80} .metric-pill .mv.am{color:#fbbf24} .metric-pill .mv.rs{color:#f43f5e}
+.live-pill { display: flex; align-items: center; gap: 7px; font-size: 9px; color: rgba(130,165,255,0.3); letter-spacing: .1em; }
+.live-dot { width: 5px; height: 5px; border-radius: 50%; background: #4477ff; box-shadow: 0 0 7px #4477ff; animation: blink 2.5s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.12} }
+.ev-count { font-size: 9px; color: rgba(130,165,255,0.28); letter-spacing: .06em; min-width: 80px; text-align: right; }
+
+/* NAV DROPDOWN */
+.flux-nav{position:relative;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;padding:0 14px;height:100%;color:#4477ff;font-size:13px;letter-spacing:.08em}
+.flux-nav:hover{background:rgba(68,119,255,0.06)}
+.flux-nav em{font-style:normal;opacity:.4}
+.flux-nav-arrow{font-size:9px;opacity:.55;transform:translateY(-1px)}
+.flux-nav-menu{
+  position:absolute;top:100%;left:0;min-width:200px;
+  background:rgba(8,12,22,0.97);border:1px solid rgba(80,120,200,0.25);
+  border-radius:4px;padding:4px 0;z-index:100;
+  box-shadow:0 8px 24px rgba(0,0,0,0.6);backdrop-filter:blur(10px);
+  display:none;font-family:'IBM Plex Mono',monospace;
+}
+.flux-nav.open .flux-nav-menu{display:block}
+.flux-nav-item{
+  display:block;padding:8px 14px;font-size:11px;letter-spacing:.04em;
+  color:rgba(200,218,240,0.6);text-decoration:none;transition:all .12s;
+  border-left:2px solid transparent;
+}
+.flux-nav-item:hover{background:rgba(80,120,200,0.12);color:#c8daf0}
+.flux-nav-item.active{color:#4477ff;border-left-color:#4477ff}
+.flux-nav-item-sub{font-size:9px;opacity:.4;display:block;margin-top:1px}
+
+.main { flex: 1; position: relative; overflow: hidden; }
+#c { display: block; position: absolute; top: 0; left: 0; }
+
+.elog { position: absolute; bottom: 18px; left: 18px; z-index: 10; display: flex; flex-direction: column; gap: 4px; width: 320px; pointer-events: none; }
+.erow { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: rgba(3,6,22,0.9); border: 1px solid rgba(50,90,200,0.14); border-radius: 2px; font-size: 9px; letter-spacing: .05em; animation: slin .2s ease forwards; opacity: 0; }
+@keyframes slin { from{opacity:0;transform:translateX(-5px)} to{opacity:1;transform:none} }
+.erow-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.erow-type { flex-shrink: 0; min-width: 62px; }
+.erow-txt { color: rgba(130,165,255,0.38); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.erow-ts { color: rgba(130,165,255,0.16); flex-shrink: 0; }
+
+.abadge { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); font-size: 9px; letter-spacing: .2em; text-transform: uppercase; padding: 4px 18px; border-radius: 2px; pointer-events: none; z-index: 10; opacity: 0; transition: opacity .22s; }
+.abadge.show { opacity: 1; }
+
+.legend { position: absolute; bottom: 18px; right: 18px; z-index: 10; background: rgba(3,6,22,0.9); border: 1px solid rgba(50,90,200,0.12); border-radius: 3px; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.leg-head { font-size: 7px; color: rgba(130,165,255,0.22); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 2px; }
+.leg-row { display: flex; align-items: center; gap: 8px; font-size: 9px; color: rgba(130,165,255,0.42); }
+.leg-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+.hlabel { position: absolute; pointer-events: none; z-index: 20; background: rgba(3,6,22,0.96); border: 1px solid rgba(70,120,255,0.28); border-radius: 3px; padding: 7px 11px; font-size: 10px; color: #8aaeee; max-width: 260px; line-height: 1.55; opacity: 0; transition: opacity .12s; }
+.hlabel.show { opacity: 1; }
+
+.loading{ position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(3,6,16,0.85);z-index:50;font-size:11px;color:rgba(130,165,255,0.55);letter-spacing:.08em;text-transform:uppercase; }
+.loading.hide{display:none}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div class="flux-nav" id="flux-nav">
+      <span>flux/<em>memory</em></span>
+      <span class="flux-nav-arrow">▾</span>
+      <div class="flux-nav-menu">
+        <a href="/" class="flux-nav-item">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
+        <a href="/mycelium" class="flux-nav-item">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
+        <a href="/globe" class="flux-nav-item active">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
+      </div>
+    </div>
+    <div class="metric-strip">
+      <div class="metric-pill"><span class="ml">Grains</span><span class="mv cy" id="mp-grains">—</span></div>
+      <div class="metric-pill"><span class="ml">Entries</span><span class="mv" id="mp-entries">—</span></div>
+      <div class="metric-pill"><span class="ml">Conduits</span><span class="mv" id="mp-conduits">—</span></div>
+      <div class="metric-pill"><span class="ml">Embeds</span><span class="mv" id="mp-embed">—</span></div>
+      <div class="metric-pill"><span class="ml">Retrieval</span><span class="mv gn" id="mp-retrieval">—</span></div>
+      <div class="metric-pill"><span class="ml">Fallback</span><span class="mv rs" id="mp-fallback">—</span></div>
+      <div class="metric-pill"><span class="ml">Feedback</span><span class="mv rs" id="mp-feedback">—</span></div>
+    </div>
+    <div class="topbar-r">
+      <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+      <div class="ev-count" id="ev-count">0 activations</div>
+    </div>
+  </div>
+  <div class="main" id="main">
+    <canvas id="c"></canvas>
+    <div class="loading" id="loading">loading flux graph…</div>
+    <div class="abadge" id="abadge"></div>
+    <div class="elog" id="elog"></div>
+    <div class="hlabel" id="hlabel"></div>
+    <div class="legend">
+      <div class="leg-head">Action Types</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#5599ff"></div>retrieve</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#eef4ff"></div>store</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#77ccff"></div>feedback</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#ff6644"></div>decay</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#aa77ff"></div>propagate</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── NAV DROPDOWN ─────────────────────────────────────────────────────────
+(function(){
+  const nav = document.getElementById('flux-nav');
+  nav.addEventListener('click', e => { e.stopPropagation(); nav.classList.toggle('open'); });
+  document.addEventListener('click', () => nav.classList.remove('open'));
+})();
+
+// ── CANVAS ────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const DPR    = window.devicePixelRatio || 1;
+let W=0, H=0, CX=0, CY=0, GRAD=0;
+
+function resize() {
+  const main = document.getElementById('main');
+  W = main.clientWidth;
+  H = main.clientHeight;
+  canvas.width  = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  CX = W * 0.5;
+  CY = H * 0.5;
+  GRAD = Math.min(W, H) * 0.38 * radiusScale;
+}
+
+// ── PALETTE ───────────────────────────────────────────────────────────────
+const CLUSTERS = [
+  {id:0,name:'', col:'#5599ff'},
+  {id:1,name:'', col:'#77ccff'},
+  {id:2,name:'', col:'#99bbff'},
+  {id:3,name:'', col:'#eef4ff'},
+  {id:4,name:'', col:'#bbddff'},
+  {id:5,name:'', col:'#66aaff'},
+];
+
+const ACTION_COL = {
+  retrieve:'#5599ff', store:'#eef4ff',
+  feedback:'#77ccff', decay:'#ff6644', propagate:'#aa77ff',
+};
+
+// ── DATA STATE ────────────────────────────────────────────────────────────
+let GRAIN_DATA = [];        // [{id,rid,content,cid,w}]
+let GRAIN_EDGES = [];       // [[idxA, idxB]]
+let grainPos = [];
+let surfPts = [];
+let SURF_EDGES = [];
+let innerPts = [];
+let burstV, burstDV, burstOn;
+let ridToIdx = new Map();   // grain real-id → index
+
+const conduitsActive = {};   // key→{life,col}
+const shockwaves = [];
+const sparks = [];
+let hoveredGrain = null;
+let selectedGrain = null;    // sticky: stays highlighted until clicked away
+let lastEventTimestamp = '';
+
+// Pan/zoom state for globe
+let radiusScale = 1;          // wheel-driven zoom
+let manualRot = false;        // user-driven rotation override
+let dragRot = false;
+let dragLastRot = null;
+let userRotY = 0, userRotX = 0; // accumulated manual rotation
+
+// ── SEEDED RNG ─────────────────────────────────────────────────────────────
+function mkRng(seed){
+  let s=seed>>>0;
+  return ()=>{ s=Math.imul(s,1664525)+1013904223|0; return (s>>>0)/0xffffffff; };
+}
+const R0 = mkRng(777);
+
+// ── SPHERE POPULATIONS ────────────────────────────────────────────────────
+function fibSphere(n) {
+  if (n <= 1) return [[0,0,1]];
+  const pts=[], phi=Math.PI*(Math.sqrt(5)-1);
+  for(let i=0;i<n;i++){
+    const y=1-(i/(n-1))*2, r=Math.sqrt(Math.max(0,1-y*y)), t=phi*i;
+    pts.push([Math.cos(t)*r, y, Math.sin(t)*r]);
+  }
+  return pts;
+}
+
+function buildSurfaceMesh(){
+  // Surface dust scaled with grain count for visual density
+  const N_SURF = Math.max(420, Math.min(800, GRAIN_DATA.length * 2));
+  surfPts = fibSphere(N_SURF).map(([x,y,z])=>({
+    x:x+(R0()-.5)*.06, y:y+(R0()-.5)*.06, z:z+(R0()-.5)*.06,
+    r:R0()*.55+.12, a:R0()*.45+.18,
+  }));
+  // Surface mesh edges (proximity-based)
+  SURF_EDGES = [];
+  const thresh = 0.055 * (420 / N_SURF);  // tighter threshold for denser sphere
+  for(let i=0;i<N_SURF;i++){
+    for(let j=i+1;j<N_SURF;j++){
+      const dx=surfPts[i].x-surfPts[j].x, dy=surfPts[i].y-surfPts[j].y, dz=surfPts[i].z-surfPts[j].z;
+      if(dx*dx+dy*dy+dz*dz<thresh) SURF_EDGES.push([i,j]);
+    }
+  }
+  // Inner depth layer
+  const N_INNER = Math.max(100, Math.min(160, Math.round(GRAIN_DATA.length * 0.4)));
+  innerPts = Array.from({length:N_INNER},()=>{
+    const u=R0(),v=R0();
+    const th=2*Math.PI*u, ph=Math.acos(2*v-1), sc=.48+R0()*.22;
+    return {x:Math.sin(ph)*Math.cos(th)*sc, y:Math.cos(ph)*sc, z:Math.sin(ph)*Math.sin(th)*sc, r:R0()*.5+.1, a:R0()*.18+.04};
+  });
+}
+
+// ── DATA LOAD ─────────────────────────────────────────────────────────────
+async function loadData(){
+  const [graph, clusters] = await Promise.all([
+    fetch('/api/graph').then(r => r.json()),
+    fetch('/api/clusters').then(r => r.json()).catch(()=>({clusters:[]}))
+  ]);
+
+  const clusterList = (clusters.clusters||[]).slice().sort((a,b)=>(b.members||[]).length-(a.members||[]).length);
+  CLUSTERS.forEach(c => { c.name = ''; });
+  const grainToCluster = {};
+  clusterList.forEach((c, idx) => {
+    const slot = Math.min(idx, CLUSTERS.length-1);
+    if (idx < CLUSTERS.length-1) CLUSTERS[slot].name = String(c.cluster_id);
+    (c.members||[]).forEach(gid => { grainToCluster[gid] = slot; });
+  });
+  if (clusterList.length > CLUSTERS.length-1) {
+    CLUSTERS[CLUSTERS.length-1].name = `+${clusterList.length-(CLUSTERS.length-1)} more`;
+  }
+  function hashSlot(s){let h=0;for(let i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;return Math.abs(h)%CLUSTERS.length;}
+
+  const grainNodes = (graph.nodes||[]).filter(n => n.node_type === 'grain');
+  const grainSet = new Set(grainNodes.map(n => n.id));
+
+  // Per-grain max effective_weight as proxy for grain "weight"
+  const incidentMaxW = {};
+  (graph.links||[]).forEach(l => {
+    const ew = l.effective_weight ?? l.weight ?? 0;
+    if (grainSet.has(l.source)) incidentMaxW[l.source] = Math.max(incidentMaxW[l.source]||0, ew);
+    if (grainSet.has(l.target)) incidentMaxW[l.target] = Math.max(incidentMaxW[l.target]||0, ew);
+  });
+
+  GRAIN_DATA = grainNodes.map((n, i) => ({
+    id: i,
+    rid: n.id,
+    content: n.label || n.id.slice(0,12),
+    cid: grainToCluster[n.id] ?? hashSlot(n.id),
+    w: Math.max(0.1, Math.min(1, incidentMaxW[n.id] ?? 0.3)),
+  }));
+
+  ridToIdx = new Map(GRAIN_DATA.map(g => [g.rid, g.id]));
+
+  // Build grain edges from real conduits + entry-mediated connections
+  const directEdges = [];
+  const entryToGrains = {};
+  (graph.links||[]).forEach(l => {
+    if (grainSet.has(l.source) && grainSet.has(l.target)) {
+      const a = ridToIdx.get(l.source), b = ridToIdx.get(l.target);
+      if (a !== undefined && b !== undefined && a !== b) directEdges.push([a, b]);
+    } else if (!grainSet.has(l.source) && grainSet.has(l.target)) {
+      const ew = l.effective_weight ?? l.weight ?? 0;
+      (entryToGrains[l.source] = entryToGrains[l.source] || []).push({gi: ridToIdx.get(l.target), w:ew});
+    }
+  });
+
+  const synth = [];
+  Object.values(entryToGrains).forEach(arr => {
+    const top = arr.slice().sort((a,b)=>b.w-a.w).slice(0,5);
+    for (let i=0; i<top.length; i++)
+      for (let j=i+1; j<top.length; j++)
+        if (top[i].gi !== undefined && top[j].gi !== undefined && top[i].gi !== top[j].gi)
+          synth.push([top[i].gi, top[j].gi]);
+  });
+
+  const seen = new Set();
+  GRAIN_EDGES = [];
+  [...directEdges, ...synth].forEach(([a,b]) => {
+    const k = a<b ? `${a}_${b}` : `${b}_${a}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    GRAIN_EDGES.push([a, b]);
+  });
+
+  // Sphere positions
+  grainPos = fibSphere(GRAIN_DATA.length).map(([x,y,z])=>({x,y,z}));
+
+  // Burst state arrays
+  burstV  = new Float32Array(GRAIN_DATA.length);
+  burstDV = new Float32Array(GRAIN_DATA.length);
+  burstOn = new Uint8Array(GRAIN_DATA.length);
+
+  buildSurfaceMesh();
+}
+
+// ── ROTATION ──────────────────────────────────────────────────────────────
+let rotY=0, rotX=0.26, tick=0;
+
+function rot(nx,ny,nz){
+  const cx=Math.cos(rotX), sx=Math.sin(rotX);
+  const y2=ny*cx-nz*sx, z2=ny*sx+nz*cx;
+  const cy=Math.cos(rotY), sy2=Math.sin(rotY);
+  const x3=nx*cy+z2*sy2, z3=-nx*sy2+z2*cy;
+  return [x3,y2,z3];
+}
+
+function proj(nx,ny,nz,burstF, radiusBoost){
+  const [rx,ry,rz]=rot(nx,ny,nz);
+  const len=Math.sqrt(rx*rx+ry*ry+rz*rz)||1;
+  const ux=rx/len,uy=ry/len,uz=rz/len;
+  const boost = radiusBoost || 0;
+  const radius=GRAD*(1 + burstF*0.12 + boost);
+  return {sx:CX+ux*radius, sy:CY+uy*radius, depth:(uz+1)*.5};
+}
+
+// ── DRAW ──────────────────────────────────────────────────────────────────
+function draw(){
+  tick++;
+  if (!manualRot && !dragRot) rotY += 0.0022;
+
+  if (burstV) {
+    for(let i=0;i<GRAIN_DATA.length;i++){
+      const isSel = selectedGrain === i;
+      const on = burstOn[i] || isSel;
+      // Higher peak + slower decay so live bursts are unmistakable
+      const tgt = on ? 1.0 : 0;
+      const k = on ? .30 : .025, dmp = on ? .58 : .91;
+      burstDV[i]+=(tgt-burstV[i])*k;
+      burstDV[i]*=dmp;
+      burstV[i]=Math.max(0,Math.min(1.05,burstV[i]+burstDV[i]));
+    }
+  }
+  // Slower fades so live bursts stay visible long enough to notice
+  for(const k of Object.keys(conduitsActive)){ conduitsActive[k].life-=.0035; if(conduitsActive[k].life<=0) delete conduitsActive[k]; }
+  for(let i=shockwaves.length-1;i>=0;i--){ const sw=shockwaves[i]; sw.r+=(sw.maxR-sw.r)*.045; sw.life-=.009; if(sw.life<=0) shockwaves.splice(i,1); }
+  for(let i=sparks.length-1;i>=0;i--){ const sp=sparks[i]; sp.x+=sp.vx; sp.y+=sp.vy; sp.vx*=.96; sp.vy*=.96; sp.life-=.012; if(sp.life<=0) sparks.splice(i,1); }
+
+  ctx.clearRect(0,0,W,H);
+
+  drawBg();
+  drawGlobeGlow();
+  drawSurfEdges();
+  drawGrainEdges();
+  drawShockwaves();
+  drawInner();
+  drawSurfNodes();
+  drawGrainNodes();
+  drawSparks();
+
+  requestAnimationFrame(draw);
+}
+
+function drawBg(){
+  const g=ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*.8);
+  g.addColorStop(0,'#060d20'); g.addColorStop(.5,'#040a18'); g.addColorStop(1,'#020610');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+}
+
+function drawGlobeGlow(){
+  const pm=1+Math.sin(tick*.02)*.014;
+  const gr=GRAD*pm;
+  const g1=ctx.createRadialGradient(CX,CY,gr*.1,CX,CY,gr*1.55);
+  g1.addColorStop(0,'rgba(80,130,255,0.18)'); g1.addColorStop(.3,'rgba(50,90,220,0.10)');
+  g1.addColorStop(.7,'rgba(20,50,140,0.04)'); g1.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g1; ctx.fillRect(0,0,W,H);
+  const g2=ctx.createRadialGradient(CX,CY,0,CX,CY,gr*.45);
+  g2.addColorStop(0,'rgba(230,240,255,0.28)'); g2.addColorStop(.3,'rgba(160,200,255,0.18)');
+  g2.addColorStop(.7,'rgba(80,130,255,0.08)'); g2.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g2; ctx.fillRect(0,0,W,H);
+  const g3=ctx.createRadialGradient(CX,CY,0,CX,CY,gr*.12);
+  g3.addColorStop(0,'rgba(255,255,255,0.35)'); g3.addColorStop(.6,'rgba(200,220,255,0.12)'); g3.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g3; ctx.fillRect(0,0,W,H);
+}
+
+function drawSurfEdges(){
+  ctx.save();
+  for(const [a,b] of SURF_EDGES){
+    const pa=surfPts[a],pb=surfPts[b];
+    const pA=proj(pa.x,pa.y,pa.z,0), pB=proj(pb.x,pb.y,pb.z,0);
+    const depth=(pA.depth+pB.depth)*.5;
+    if(depth<.04) continue;
+    const alpha=depth*.34+.05;
+    ctx.beginPath(); ctx.moveTo(pA.sx,pA.sy); ctx.lineTo(pB.sx,pB.sy);
+    ctx.strokeStyle=`rgba(140,185,255,${alpha})`; ctx.lineWidth=.5; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Sample N points along the great-circle (SLERP) between two unit vectors,
+// projected outward beyond the globe surface (peaks at midpoint) so arcs
+// don't hug the surface. liftFactor controls how far the bulge extends.
+function arcPoints(pa, pb, burstA, burstB, N, liftFactor){
+  const dot = Math.max(-1, Math.min(1, pa.x*pb.x + pa.y*pb.y + pa.z*pb.z));
+  const theta = Math.acos(dot);
+  const sinT = Math.sin(theta);
+  const out = [];
+  // Lift scales with the angular distance — longer chords get bigger bulges.
+  const lift = (liftFactor || 0.32) * Math.min(1, theta / Math.PI * 2);
+  if (sinT < 1e-6) {
+    out.push(proj(pa.x,pa.y,pa.z,burstA,lift));
+    out.push(proj(pb.x,pb.y,pb.z,burstB,lift));
+    return out;
+  }
+  for (let i=0; i<=N; i++) {
+    const t = i/N;
+    const a = Math.sin((1-t)*theta)/sinT;
+    const b = Math.sin(t*theta)/sinT;
+    const nx = a*pa.x + b*pb.x;
+    const ny = a*pa.y + b*pb.y;
+    const nz = a*pa.z + b*pb.z;
+    // Bulge outward — sin envelope peaks at midpoint
+    const bulge = lift * Math.sin(t * Math.PI);
+    const bf = burstA*(1-t) + burstB*t;
+    out.push(proj(nx, ny, nz, bf, bulge));
+  }
+  return out;
+}
+
+function drawGrainEdges(){
+  for(const [a,b] of GRAIN_EDGES){
+    const pa=grainPos[a], pb=grainPos[b];
+    if (!pa || !pb) continue;
+    const bA=burstV[a]||0, bB=burstV[b]||0;
+    const key=`${Math.min(a,b)}_${Math.max(a,b)}`;
+    const act=conduitsActive[key];
+    const bl=Math.max(bA,bB);
+    const isSelEdge = selectedGrain !== null && (a === selectedGrain || b === selectedGrain);
+
+    // Sample arc along great circle. Activated edges get more segments and a bigger outward bulge.
+    const segs = act ? 28 : isSelEdge ? 22 : 14;
+    const lift = act ? 0.42 : isSelEdge ? 0.36 : 0.30;
+    const arc = arcPoints(pa, pb, bA, bB, segs, lift);
+
+    // Total screen-space chord length — used to scale jitter amplitude properly.
+    const arcStart = arc[0], arcEnd = arc[arc.length-1];
+    const totalChord = Math.hypot(arcEnd.sx - arcStart.sx, arcEnd.sy - arcStart.sy);
+    // Average depth from midpoint
+    const mid = arc[Math.floor(arc.length/2)];
+    const depth = mid.depth;
+    if (!act && !isSelEdge && depth < .02) continue;
+
+    let alpha, col, lw;
+    if (act) {
+      alpha = act.life*.9*Math.sqrt(Math.max(0.05, depth)); col = act.col; lw = 1.2+bl*.6;
+    } else if (isSelEdge) {
+      alpha = .55*Math.sqrt(Math.max(0.1, depth)); col = '#ffffff'; lw = 1.2;
+    } else if (bl > .06) {
+      alpha = depth*bl*.6; col = CLUSTERS[GRAIN_DATA[a].cid].col; lw = .8;
+    } else {
+      // Static edges: dimmer + culled on back side so live arcs pop visibly
+      if (depth < 0.45) continue;
+      alpha = depth*.10; col = '#6688cc'; lw = .4;
+    }
+    if (alpha < .008) continue;
+    const [r, g2, b2] = hexRgb(col);
+
+    if (act) {
+      // Electric arc: jitter scaled to TOTAL chord length (matches original feel)
+      const jAmpMax = Math.min(22, totalChord*0.20) * act.life;
+      for (let pass=0; pass<2; pass++) {
+        ctx.beginPath();
+        for (let i=0; i<arc.length; i++) {
+          const p = arc[i];
+          // Local screen-space perpendicular from neighbors
+          const prev = arc[Math.max(0,i-1)], next = arc[Math.min(arc.length-1,i+1)];
+          const tx = next.sx - prev.sx, ty = next.sy - prev.sy;
+          const tlen = Math.sqrt(tx*tx+ty*ty)||1;
+          const nx = -ty/tlen, ny = tx/tlen;
+          const t2 = i/(arc.length-1);
+          const env = Math.sin(t2*Math.PI);
+          const jitter = (Math.sin(t2*Math.PI*6+tick*.4+pass*1.3)*jAmpMax*0.6
+                          + (Math.random()-.5)*jAmpMax*0.95) * env;
+          const px = p.sx + nx*jitter, py = p.sy + ny*jitter;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        if (pass === 0) {
+          ctx.strokeStyle = `rgba(${r},${g2},${b2},${act.life*.6*Math.max(0.15,depth)})`;
+          ctx.lineWidth = 4.2; ctx.stroke();
+        } else {
+          ctx.strokeStyle = `rgba(255,255,255,${act.life*.92*Math.max(0.15,depth)})`;
+          ctx.lineWidth = 1.1; ctx.stroke();
+        }
+      }
+      // Spark dots racing along the curved arc — also offset perpendicular for jitter
+      for (let d=0; d<4; d++) {
+        const t3 = ((tick*.028 + d*0.25) % 1);
+        const sIdx = Math.min(arc.length-1, Math.max(0, Math.floor(t3*(arc.length-1))));
+        const sp = arc[sIdx];
+        const prev = arc[Math.max(0,sIdx-1)], next = arc[Math.min(arc.length-1,sIdx+1)];
+        const tx = next.sx - prev.sx, ty = next.sy - prev.sy;
+        const tlen = Math.sqrt(tx*tx+ty*ty)||1;
+        const nx = -ty/tlen, ny = tx/tlen;
+        const env2 = Math.sin(t3*Math.PI);
+        const jitter3 = Math.sin(t3*Math.PI*6+tick*.4) * jAmpMax * 0.5 * env2;
+        const spx = sp.sx + nx*jitter3, spy = sp.sy + ny*jitter3;
+        const sAlpha = act.life * Math.sin(t3*Math.PI) * 0.95;
+        const sg = ctx.createRadialGradient(spx,spy,0,spx,spy,10);
+        sg.addColorStop(0,`rgba(255,255,255,${sAlpha})`);
+        sg.addColorStop(.35,`rgba(${r},${g2},${b2},${sAlpha*.75})`);
+        sg.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(spx,spy,10,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(spx,spy,2.0,0,Math.PI*2);
+        ctx.fillStyle = `rgba(255,255,255,${sAlpha})`; ctx.fill();
+      }
+    } else {
+      // Plain curved arc
+      ctx.beginPath();
+      for (let i=0; i<arc.length; i++) {
+        if (i === 0) ctx.moveTo(arc[i].sx, arc[i].sy);
+        else ctx.lineTo(arc[i].sx, arc[i].sy);
+      }
+      ctx.strokeStyle = `rgba(${r},${g2},${b2},${alpha})`;
+      ctx.lineWidth = lw;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawShockwaves(){
+  for(const sw of shockwaves){
+    const [r,g2,b2]=hexRgb(sw.col);
+    ctx.beginPath(); ctx.arc(CX,CY,sw.r,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(${r},${g2},${b2},${sw.life*.45})`; ctx.lineWidth=1.8; ctx.stroke();
+    ctx.beginPath(); ctx.arc(CX,CY,sw.r*.85,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(${r},${g2},${b2},${sw.life*.12})`; ctx.lineWidth=5; ctx.stroke();
+  }
+}
+
+function drawInner(){
+  for(const p of innerPts){
+    const pr=proj(p.x,p.y,p.z,0);
+    if(pr.depth<.08) continue;
+    const alpha=pr.depth*p.a*3.5+.06;
+    ctx.beginPath(); ctx.arc(pr.sx,pr.sy,p.r+.6,0,Math.PI*2);
+    ctx.fillStyle=`rgba(160,205,255,${Math.min(.55,alpha)})`; ctx.fill();
+  }
+}
+
+function drawSurfNodes(){
+  const pm=1+Math.sin(tick*.02)*.014;
+  for(const p of surfPts){
+    const pr=proj(p.x,p.y,p.z,0);
+    if(pr.depth<.03) continue;
+    const alpha=Math.min(.85, pr.depth*p.a*2.8+.08)*pm;
+    const nr=p.r*1.4;
+    if(alpha>.3){
+      ctx.beginPath(); ctx.arc(pr.sx,pr.sy,nr*2.5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(180,220,255,${alpha*.12})`; ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(pr.sx,pr.sy,nr,0,Math.PI*2);
+    ctx.fillStyle=`rgba(200,225,255,${alpha})`; ctx.fill();
+  }
+}
+
+function drawGrainNodes(){
+  if (!burstV) return;
+  const sorted=GRAIN_DATA.map((g,i)=>{
+    const p=grainPos[i]; if (!p) return null;
+    const bv=burstV[i];
+    const pr=proj(p.x,p.y,p.z,bv);
+    return{g,i,pr,bv};
+  }).filter(x=>x).sort((a,b)=>a.pr.depth-b.pr.depth);
+
+  for(const{g,i,pr,bv}of sorted){
+    const{sx,sy,depth}=pr;
+    const cl=CLUSTERS[g.cid] || CLUSTERS[CLUSTERS.length-1];
+    const[rr,gg2,bb2]=hexRgb(cl.col);
+    const isHov=hoveredGrain===i;
+    // Scale node size with grain count
+    const sizeScale = GRAIN_DATA.length < 60 ? 1 : GRAIN_DATA.length < 200 ? 0.7 : GRAIN_DATA.length < 500 ? 0.5 : 0.38;
+    const nr=(2.0+g.w*4.5)*(1+bv*.85)*sizeScale;
+    const baseA=.18+depth*.82;
+
+    if(bv>.07){
+      // Much more dramatic burst halo — 4x radius, brighter core
+      const gR=nr*(3.8+bv*3.2);
+      const grd=ctx.createRadialGradient(sx,sy,0,sx,sy,gR);
+      grd.addColorStop(0,`rgba(255,255,255,${bv*.45})`);
+      grd.addColorStop(.18,`rgba(${rr},${gg2},${bb2},${bv*.65})`);
+      grd.addColorStop(.5,`rgba(${rr},${gg2},${bb2},${bv*.20})`);
+      grd.addColorStop(1,`rgba(${rr},${gg2},${bb2},0)`);
+      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(sx,sy,gR,0,Math.PI*2); ctx.fill();
+    }
+
+    if(isHov){
+      ctx.beginPath(); ctx.arc(sx,sy,nr+7,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(${rr},${gg2},${bb2},.38)`; ctx.lineWidth=1; ctx.stroke();
+    }
+
+    const nd=ctx.createRadialGradient(sx-nr*.28,sy-nr*.28,0,sx,sy,nr);
+    nd.addColorStop(0,`rgba(255,255,255,${baseA*.92})`);
+    nd.addColorStop(.4,`rgba(${rr},${gg2},${bb2},${baseA})`);
+    nd.addColorStop(1,`rgba(${Math.round(rr*.3)},${Math.round(gg2*.3)},${Math.round(bb2*.3)},${baseA*.55})`);
+    ctx.beginPath(); ctx.arc(sx,sy,nr,0,Math.PI*2);
+    ctx.fillStyle=nd; ctx.fill();
+
+    if(bv>.08){
+      ctx.beginPath(); ctx.arc(sx,sy,nr+2,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(${rr},${gg2},${bb2},${bv*.75})`; ctx.lineWidth=1; ctx.stroke();
+    }
+  }
+}
+
+function drawSparks(){
+  for(const sp of sparks){
+    const[r,g2,b2]=hexRgb(sp.col);
+    ctx.beginPath(); ctx.arc(sp.x,sp.y,sp.r*sp.life,0,Math.PI*2);
+    ctx.fillStyle=`rgba(${r},${g2},${b2},${sp.life*.7})`; ctx.fill();
+  }
+}
+
+// ── ACTIVATION ────────────────────────────────────────────────────────────
+let activationCount=0;
+function activate(type, grainIds, conduitPairs=[], holdMs=1400){
+  if (!burstOn) return;
+  activationCount++;
+  document.getElementById('ev-count').textContent=`${activationCount} activation${activationCount!==1?'s':''}`;
+  const col=ACTION_COL[type]||'#5599ff';
+  const[rr,gg2,bb2]=hexRgb(col);
+
+  const badge=document.getElementById('abadge');
+  badge.textContent=type.toUpperCase();
+  badge.style.cssText=`position:absolute;top:58px;left:50%;transform:translateX(-50%);font-size:9px;letter-spacing:.2em;text-transform:uppercase;padding:4px 18px;border-radius:2px;pointer-events:none;z-index:10;background:rgba(${rr},${gg2},${bb2},.1);color:${col};border:1px solid rgba(${rr},${gg2},${bb2},.3);`;
+  badge.classList.add('show');
+  setTimeout(()=>badge.classList.remove('show'),holdMs+500);
+
+  grainIds.forEach(id=>{if(id>=0&&id<GRAIN_DATA.length) burstOn[id]=1;});
+  conduitPairs.forEach(([a,b])=>{ if(a<GRAIN_DATA.length&&b<GRAIN_DATA.length) conduitsActive[`${Math.min(a,b)}_${Math.max(a,b)}`]={life:1,col}; });
+  shockwaves.push({r:GRAD*.7, maxR:GRAD*1.15, life:1, col});
+
+  grainIds.forEach(id=>{
+    if(id<0||id>=GRAIN_DATA.length) return;
+    const p=grainPos[id]; if (!p) return;
+    const pr=proj(p.x,p.y,p.z,0);
+    const rng=mkRng(id*97+Date.now()%9999);
+    for(let k=0;k<8;k++){
+      const angle=rng()*Math.PI*2, speed=rng()*2.5+.8;
+      sparks.push({x:pr.sx,y:pr.sy,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,r:rng()*2+.6,life:.9+rng()*.5,col});
+    }
+  });
+
+  addLog(type,col,grainIds);
+  setTimeout(()=>grainIds.forEach(id=>{if(id>=0&&id<GRAIN_DATA.length) burstOn[id]=0;}),holdMs);
+}
+
+function addLog(type,col,ids){
+  const log=document.getElementById('elog');
+  const g = ids.length ? GRAIN_DATA[ids[0]] : null;
+  const row=document.createElement('div'); row.className='erow';
+  const now=new Date();
+  const ts=`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  row.innerHTML=`<div class="erow-dot" style="background:${col};box-shadow:0 0 4px ${col}55"></div><span class="erow-type" style="color:${col}">${type}</span><span class="erow-txt">${escapeHtml(g?g.content:'—')}${ids.length>1?` +${ids.length-1}`:''}</span><span class="erow-ts">${ts}</span>`;
+  log.prepend(row);
+  while(log.children.length>5) log.removeChild(log.lastChild);
+}
+
+// ── EVENT POLLING ─────────────────────────────────────────────────────────
+async function pollEvents(){
+  try {
+    const data = await fetch('/api/events?limit=50').then(r => r.json());
+    const events = (data.events||[]).slice().reverse(); // oldest first
+    for (const ev of events) {
+      if (lastEventTimestamp && ev.timestamp <= lastEventTimestamp) continue;
+      lastEventTimestamp = ev.timestamp;
+      handleEvent(ev);
+    }
+  } catch (err) {
+    console.warn('event poll failed', err);
+  }
+}
+
+function handleEvent(ev){
+  // Map flux event categories → action types
+  let type = null, grainIds = [], conduitPairs = [];
+  const d = ev.data || {};
+
+  if (ev.category === 'retrieval' && ev.event === 'grains_returned') {
+    type = 'retrieve';
+    // Try to infer activated grains from the trace: read /api/trace for hop info, but cheaper to skip
+    // and fall back to a few random grains. We'll only burst if the event has grain_ids field.
+    if (Array.isArray(d.activated_grain_ids)) grainIds = d.activated_grain_ids.map(rid => ridToIdx.get(rid)).filter(i => i !== undefined);
+  } else if (ev.category === 'write' && ev.event === 'grain_stored') {
+    type = 'store';
+    if (d.grain_id) {
+      const idx = ridToIdx.get(d.grain_id);
+      if (idx !== undefined) grainIds = [idx];
+    }
+  } else if (ev.category === 'feedback' && ev.event === 'feedback_received') {
+    type = d.action === 'penalized' ? 'decay' : 'feedback';
+    if (d.grain_id) {
+      const idx = ridToIdx.get(d.grain_id);
+      if (idx !== undefined) grainIds = [idx];
+    }
+  } else if (ev.category === 'feedback' && ev.event === 'conduit_reinforced') {
+    type = 'feedback';
+    const ai = ridToIdx.get(d.from_id), bi = ridToIdx.get(d.to_id);
+    if (ai !== undefined) grainIds.push(ai);
+    if (bi !== undefined) grainIds.push(bi);
+    if (ai !== undefined && bi !== undefined) conduitPairs.push([ai, bi]);
+  } else if (ev.category === 'feedback' && ev.event === 'conduit_penalized') {
+    type = 'decay';
+    const ai = ridToIdx.get(d.from_id), bi = ridToIdx.get(d.to_id);
+    if (ai !== undefined) grainIds.push(ai);
+    if (bi !== undefined) grainIds.push(bi);
+    if (ai !== undefined && bi !== undefined) conduitPairs.push([ai, bi]);
+  } else if (ev.category === 'feedback' && (ev.event === 'shortcut_created' || ev.event === 'highway_formed')) {
+    type = 'propagate';
+    const ai = ridToIdx.get(d.from_id), bi = ridToIdx.get(d.to_id);
+    if (ai !== undefined) grainIds.push(ai);
+    if (bi !== undefined) grainIds.push(bi);
+    if (ai !== undefined && bi !== undefined) conduitPairs.push([ai, bi]);
+  } else if (ev.category === 'decay') {
+    type = 'decay';
+    // No specific grains; pick a few random low-weight grains
+    const lowW = GRAIN_DATA.filter(g=>g.w<0.4).map(g=>g.id);
+    grainIds = shuffleArr(lowW).slice(0,3);
+  }
+
+  if (!type || !grainIds.length) return;
+  // Extended hold so bursts stay visible for several seconds
+  const holdMs = type === 'propagate' ? 4000 : type === 'feedback' || type === 'decay' ? 3200 : 2800;
+
+  // If activation only had a single grain (e.g. plain feedback), illuminate its top neighbours
+  // so an arc is actually visible — single-point bursts have no edges to electrify.
+  if (conduitPairs.length === 0 && grainIds.length === 1) {
+    const a = grainIds[0];
+    const neighbors = [];
+    for (const [x, y] of GRAIN_EDGES) {
+      if (x === a) neighbors.push(y);
+      else if (y === a) neighbors.push(x);
+    }
+    neighbors.slice(0, 4).forEach(n => { conduitPairs.push([a, n]); grainIds.push(n); });
+  }
+
+  activate(type, grainIds, conduitPairs, holdMs);
+}
+
+// ── MOUSE ─────────────────────────────────────────────────────────────────
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX-rect.left, my = e.clientY-rect.top;
+  // If not clicking a grain, start rotation drag
+  if (hoveredGrain === null) {
+    dragRot = true;
+    dragLastRot = {x:e.clientX, y:e.clientY};
+    canvas.style.cursor = 'grabbing';
+  }
+});
+window.addEventListener('mouseup', () => {
+  if (dragRot) { dragRot = false; canvas.style.cursor = 'default'; }
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.92 : 1.08;
+  radiusScale = Math.max(0.4, Math.min(2.5, radiusScale * factor));
+  GRAD = Math.min(W, H) * 0.38 * radiusScale;
+}, {passive:false});
+
+canvas.addEventListener('mousemove',e=>{
+  const rect=canvas.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  if (dragRot) {
+    rotY += (e.clientX - dragLastRot.x) * 0.006;
+    rotX += (e.clientY - dragLastRot.y) * 0.006;
+    rotX = Math.max(-1.4, Math.min(1.4, rotX));
+    dragLastRot = {x:e.clientX, y:e.clientY};
+    document.getElementById('hlabel').classList.remove('show');
+    return;
+  }
+  let closest=null, closestD=9999;
+  GRAIN_DATA.forEach((g,i)=>{
+    const p=grainPos[i]; if (!p) return;
+    const pr=proj(p.x,p.y,p.z,burstV?burstV[i]:0);
+    const d=Math.hypot(mx-pr.sx, my-pr.sy);
+    const sizeScale = GRAIN_DATA.length < 60 ? 1 : GRAIN_DATA.length < 200 ? 0.7 : GRAIN_DATA.length < 500 ? 0.5 : 0.38;
+    const hr=(2.0+g.w*4.5)*(1+(burstV?burstV[i]:0)*.85)*sizeScale+8;
+    if(d<hr&&d<closestD){closest=i;closestD=d;}
+  });
+  hoveredGrain=closest;
+  canvas.style.cursor=closest!==null?'pointer':(dragRot?'grabbing':'grab');
+  const lbl=document.getElementById('hlabel');
+  if(closest!==null){
+    const g=GRAIN_DATA[closest], cl=CLUSTERS[g.cid] || CLUSTERS[CLUSTERS.length-1];
+    const clLabel = cl.name ? `cluster ${cl.name.slice(0,8)}` : '';
+    lbl.innerHTML=`<span style="color:${cl.col};font-size:8px;letter-spacing:.1em">${escapeHtml(clLabel)}</span><br>${escapeHtml(g.content)}<br><span style="color:rgba(130,165,255,.35);font-size:8px">weight: ${g.w.toFixed(2)}</span>`;
+    lbl.style.left=(e.clientX+16)+'px'; lbl.style.top=(e.clientY-10)+'px';
+    lbl.classList.add('show');
+  } else lbl.classList.remove('show');
+});
+canvas.addEventListener('mouseleave',()=>{hoveredGrain=null; document.getElementById('hlabel').classList.remove('show');});
+
+// Click toggles sticky selection. Clicking empty space deselects.
+canvas.addEventListener('click', e => {
+  if (dragRot) return;
+  if (hoveredGrain === null) {
+    selectedGrain = null;
+    return;
+  }
+  if (selectedGrain === hoveredGrain) {
+    selectedGrain = null;
+  } else {
+    selectedGrain = hoveredGrain;
+  }
+});
+
+// ── UTILS ─────────────────────────────────────────────────────────────────
+function hexRgb(h){if(!h||!h.startsWith('#'))return[100,160,255];return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+function shuffleArr(a){const b=[...a];for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}return b;}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
+
+// ── METRIC STRIP UPDATE ──────────────────────────────────────────────────
+async function updateMetrics(){
+  try {
+    const [health, graph] = await Promise.all([
+      fetch('/api/health').then(r=>r.json()).catch(()=>null),
+      fetch('/api/graph').then(r=>r.json()).catch(()=>null),
+    ]);
+    if (graph && graph.stats) {
+      document.getElementById('mp-grains').textContent = graph.stats.grains ?? '—';
+      document.getElementById('mp-entries').textContent = graph.stats.entries ?? '—';
+      document.getElementById('mp-conduits').textContent = graph.stats.conduits ?? '—';
+      document.getElementById('mp-embed').textContent = graph.stats.embeddings ?? '—';
+    }
+    if (health && health.signals) {
+      const s = health.signals;
+      const fmtPct = v => v == null ? '—' : (v*100).toFixed(0)+'%';
+      document.getElementById('mp-retrieval').textContent = fmtPct(s.retrieval_success_rate?.value);
+      document.getElementById('mp-fallback').textContent  = fmtPct(s.fallback_trigger_rate?.value);
+      document.getElementById('mp-feedback').textContent  = fmtPct(s.feedback_compliance_rate?.value);
+    }
+  } catch(e) {}
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+async function init(){
+  await loadData();
+  resize();
+  document.getElementById('loading').classList.add('hide');
+  draw();
+
+  try {
+    const data = await fetch('/api/events?limit=1').then(r => r.json());
+    if (data.events && data.events.length) lastEventTimestamp = data.events[0].timestamp;
+  } catch(e) {}
+
+  updateMetrics();
+  setInterval(updateMetrics, 5000);
+  setInterval(pollEvents, 2000);
+  setInterval(async ()=>{
+    try { await loadData(); } catch(e) { console.warn('graph refetch failed', e); }
+  }, 60000);
+}
+
+window.addEventListener('resize', ()=>resize());
+requestAnimationFrame(()=>{ init(); });
+</script>
+</body>
+</html>

@@ -22,7 +22,9 @@ lever preventing hallucinated grains from compounding like facts.
 """
 from __future__ import annotations
 
-from datetime import datetime
+import math
+import time
+from datetime import datetime, timedelta
 from typing import Iterable
 
 from .config import Config, DEFAULT_CONFIG
@@ -32,6 +34,117 @@ from .propagation import TraceStep, effective_weight
 from .storage import FluxStore
 
 HIGHWAY_WEIGHT_THRESHOLD = 0.80
+
+# Window for sampling retrieval activity when computing the dynamic threshold.
+# 7 days balances responsiveness vs. statistical stability — short enough that
+# the threshold tracks current usage, long enough that day-of-week variance
+# doesn't whipsaw it.
+_THRESHOLD_WINDOW_HOURS = 168.0
+_THRESHOLD_CACHE_TTL_SECONDS = 300.0  # recompute at most every 5 minutes
+_threshold_cache: dict[str, tuple[float, int]] = {}
+
+
+def compute_shortcut_threshold(
+    store: FluxStore,
+    cfg: Config = DEFAULT_CONFIG,
+    *,
+    now: datetime | None = None,
+    cache_key: str = "default",
+) -> int:
+    """Dynamic shortcut threshold scaled to graph size and retrieval activity.
+
+    A shortcut should represent a co-occurrence pattern that's significantly
+    above what random pairing would produce. Under random selection, the
+    expected number of times a specific pair co-occurs in R retrievals
+    (top-k = k, graph size = N) is::
+
+        E_random = R * k * (k - 1) / (N * (N - 1))
+
+    We require an observed count at least 3-sigma above this expectation
+    (Poisson approximation), so the threshold is::
+
+        ceil(E_random + 3 * sqrt(E_random))
+
+    Floored at 2 (no shortcut on a single co-occurrence — that's noise by
+    construction). The result is cached for ``_THRESHOLD_CACHE_TTL_SECONDS``
+    to avoid recomputing on every reinforce() call.
+
+    Falls back to ``cfg.SHORTCUT_THRESHOLD`` if the underlying queries fail
+    (e.g., missing tables on a fresh DB).
+    """
+    cached = _threshold_cache.get(cache_key)
+    monotonic = time.monotonic()
+    if cached and (monotonic - cached[0]) < _THRESHOLD_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    try:
+        n_row = store.conn.execute(
+            "SELECT COUNT(*) AS n FROM grains WHERE status='active'"
+        ).fetchone()
+        n = int(n_row["n"]) if n_row else 0
+        if n < 2:
+            value = max(2, int(cfg.SHORTCUT_THRESHOLD))
+            _threshold_cache[cache_key] = (monotonic, value)
+            return value
+
+        now_dt = now or utcnow()
+        cutoff = (
+            now_dt - timedelta(hours=_THRESHOLD_WINDOW_HOURS)
+        ).strftime("%Y-%m-%dT%H:%M:%S")
+        r_row = store.conn.execute(
+            """
+            SELECT COUNT(*) AS r FROM events
+            WHERE category='retrieval' AND event='grains_returned'
+              AND timestamp >= ?
+            """,
+            (cutoff,),
+        ).fetchone()
+        r = int(r_row["r"]) if r_row else 0
+        k = max(2, int(cfg.TOP_K))
+
+        e_random = r * k * (k - 1) / max(1, n * (n - 1))
+        threshold = max(2, math.ceil(e_random + 3.0 * math.sqrt(e_random)))
+    except Exception:
+        threshold = max(2, int(cfg.SHORTCUT_THRESHOLD))
+
+    _threshold_cache[cache_key] = (monotonic, threshold)
+    return threshold
+
+
+# ----------------------------------------------------------- pair_with_priors
+def pair_useful_with_priors(
+    store: FluxStore,
+    new_grain_id: str,
+    prior_grain_ids: Iterable[str],
+    cfg: Config = DEFAULT_CONFIG,
+    *,
+    now: datetime | None = None,
+    trace_id: str | None = None,
+) -> int:
+    """Increment co-retrieval and form/widen conduits between a newly-useful
+    grain and other useful grains from the same trace.
+
+    flux_feedback receives one grain at a time, so reinforce()'s built-in
+    pair-loop never has more than one element to pair. This helper closes that
+    gap by walking the priors-from-same-trace and applying the same logic
+    (co-retrieval count + widen-or-shortcut) to each pair.
+
+    Returns the number of pairs processed.
+    """
+    now = now or utcnow()
+    pairs = 0
+    for prior in prior_grain_ids:
+        if prior == new_grain_id:
+            continue
+        a, b = sorted((new_grain_id, prior))
+        count = store.increment_co_retrieval(a, b, delta=1)
+        existing = store.conduit_between(a, b)
+        if existing is not None:
+            _widen(store, existing, cfg, now, trace_id=trace_id)
+        elif count >= cfg.SHORTCUT_THRESHOLD:
+            _create_shortcut(store, a, b, cfg, now, co_count=count, trace_id=trace_id)
+        pairs += 1
+    return pairs
 
 
 # --------------------------------------------------------------------- reinforce
