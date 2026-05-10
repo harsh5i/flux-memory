@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -39,7 +40,15 @@ class FluxStore:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=30000")
+        # Reentrant lock so any caller (dashboard threads, REST API threadpool,
+        # read-booth executor, background workers) can serialise multi-statement
+        # DB sequences. Without this, sharing one Connection across threads
+        # produces `InterfaceError: bad parameter` / `another row available`.
+        self._lock = threading.RLock()
         self._ensure_schema()
+
+    def lock(self) -> threading.RLock:
+        return self._lock
 
     def close(self) -> None:
         self.conn.close()
