@@ -8,6 +8,7 @@ import pytest
 
 from flux import Config, FluxStore, Grain, Conduit
 from flux.health import (
+    caller_identity,
     flux_health,
     log_event,
     _compute_graph_signals,
@@ -209,6 +210,65 @@ class TestComputeEventSignals:
         log_event(store, "retrieval", "fallback_triggered", {}, now=now)
         sigs = _compute_event_signals(store, now)
         assert sigs["fallback_trigger_rate"] == pytest.approx(0.5)
+
+    def test_retrieval_quality_ignores_background_and_test_lookups(self, store):
+        now = _now()
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {"hop_count": 1, "caller_id": "codex:chat"},
+            trace_id="chat-1",
+            now=now,
+        )
+        log_event(
+            store,
+            "feedback",
+            "retrieval_successful",
+            {"caller_id": "codex:chat"},
+            trace_id="chat-1",
+            now=now,
+        )
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "hop_count": 5,
+                "caller_id": "codex:background_lookup",
+                "query": "Generate 0 to 3 hyperpersonalized Codex suggestions for local project",
+            },
+            trace_id="bg-1",
+            now=now,
+        )
+        log_event(
+            store,
+            "retrieval",
+            "fallback_triggered",
+            {
+                "caller_id": "codex:test",
+                "query": "flux diagnostic retrieve smoke test",
+            },
+            now=now,
+        )
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "hop_count": 5,
+                "caller_id": "codex:test",
+                "query": "flux diagnostic retrieve smoke test",
+            },
+            trace_id="test-1",
+            now=now,
+        )
+
+        sigs = _compute_event_signals(store, now)
+
+        assert sigs["retrieval_success_rate"] == pytest.approx(1.0)
+        assert sigs["fallback_trigger_rate"] == pytest.approx(0.0)
+        assert sigs["avg_hops_per_retrieval"] == pytest.approx(1.0)
 
 
 # ===================================================================== _is_healthy
@@ -444,6 +504,26 @@ class TestFluxHealth:
 
         assert "codex:background_lookup" in callers
         assert "codex:chat" not in callers
+
+    def test_caller_identity_reclassifies_explicit_codex_suggestion_headers(self):
+        identity = caller_identity(
+            "codex:chat",
+            "Generate 0 to 3 hyperpersonalized Codex suggestions for local project",
+            client="codex",
+            role="chat",
+        )
+
+        assert identity["caller_id"] == "codex:background_lookup"
+
+    def test_caller_identity_reclassifies_codex_diagnostics_as_test(self):
+        identity = caller_identity(
+            "codex:chat",
+            "flux diagnostic retrieve smoke test",
+            client="codex",
+            role="chat",
+        )
+
+        assert identity["caller_id"] == "codex:test"
 
     def test_feedback_compliance_accepts_arbitrary_client_with_standard_role(self, store):
         now = _now()

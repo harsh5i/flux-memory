@@ -50,3 +50,10 @@ def test_dashboard_renders_caller_feedback_breakdown() -> None:
     assert "caller_feedback" in html
     assert "Caller Compliance" in html
     assert "caller-row" in html
+
+
+def test_dashboard_warning_list_hides_info_and_healthy_callers() -> None:
+    html = dashboard._DASHBOARD_HTML
+
+    assert "severity !== 'INFO'" in html
+    assert "missing > 0 || c.healthy === false || rate < 0.8" in html

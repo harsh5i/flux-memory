@@ -727,8 +727,17 @@ function renderHealth() {
   }
 
   // Warnings
-  const warns = (h.active_warnings || []).filter(w => !String(w.signal || '').startsWith('feedback_compliance_rate:'));
-  const callerFeedback = (h.caller_feedback || []).filter(c => (Number(c.expected) || 0) > 0);
+  const warns = (h.active_warnings || []).filter(w => {
+    const signal = String(w.signal || '');
+    const severity = String(w.severity || '').toUpperCase();
+    return !signal.startsWith('feedback_compliance_rate:') && severity !== 'INFO';
+  });
+  const callerFeedback = (h.caller_feedback || []).filter(c => {
+    const expected = Number(c.expected) || 0;
+    const missing = Number(c.missing) || 0;
+    const rate = Number(c.rate) || 0;
+    return expected > 0 && (missing > 0 || c.healthy === false || rate < 0.8);
+  });
   document.getElementById('warn-count').textContent = warns.length;
   document.getElementById('warn-count').className = 'rpanel-count' + (warns.length ? ' warn' : '');
   const wl = document.getElementById('warnings-list');
