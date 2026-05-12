@@ -515,6 +515,16 @@ class TestFluxHealth:
 
         assert identity["caller_id"] == "codex:background_lookup"
 
+    def test_caller_identity_reclassifies_hyphenated_codex_suggestion_prompt(self):
+        identity = caller_identity(
+            "codex:chat",
+            "Generate 0-3 hyperpersonalized Codex suggestions for local project",
+            client="codex",
+            role="chat",
+        )
+
+        assert identity["caller_id"] == "codex:background_lookup"
+
     def test_caller_identity_reclassifies_codex_diagnostics_as_test(self):
         identity = caller_identity(
             "codex:chat",

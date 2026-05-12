@@ -51,15 +51,15 @@ _HEALTHY_RANGES: dict[str, dict] = {
         "min": 5,
         "max": None,
         "warmup_retrievals": 100,
-        "severity": "WARNING",
-        "suggestion": "Reinforcement may be broken. Check LEARNING_RATE.",
+        "severity": "INFO",
+        "suggestion": "No conduits have crossed the highway threshold yet. Repeated useful retrievals are needed.",
     },
     "highway_growth_rate": {
         "window": "long",
         "min": 0.1,
         "max": 20,
         "warmup_days": 14,
-        "severity": "WARNING",
+        "severity": "INFO",
         "suggestion": "Queries may not be repeating enough to form highways.",
     },
     "shortcut_creation_rate": {
@@ -91,7 +91,7 @@ _HEALTHY_RANGES: dict[str, dict] = {
         "min": 0.001,
         "max": None,
         "warmup_days": 14,
-        "severity": "WARNING",
+        "severity": "INFO",
         "suggestion": "Cluster logic or PROMOTION_THRESHOLD may be wrong.",
     },
     "avg_hops_per_retrieval": {
@@ -155,7 +155,7 @@ _HEALTHY_RANGES: dict[str, dict] = {
         "min": 0.05,
         "max": 0.40,
         "warmup_days": 14,
-        "severity": "WARNING",
+        "severity": "INFO",
         "suggestion": "Too many grains being orphaned. Check bootstrap and reinforcement.",
     },
 }
@@ -208,10 +208,10 @@ def _display_client(client: str) -> str:
 def _is_codex_suggestion_prompt(query: str) -> bool:
     if "ambient suggestions" in query:
         return True
-    if "hyperpersonalized suggestions" in query:
+    if "hyperpersonalized" in query and "suggestions" in query:
         return True
     return (
-        query.startswith("generate 0 to 3")
+        re.match(r"^generate\s+0\s*(?:to|-)\s*3\b", query) is not None
         and "suggestions" in query
         and "codex" in query
         and "local project" in query
