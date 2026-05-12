@@ -167,6 +167,24 @@ class TestFluxRetrieveCaller:
         callers = {c["caller_id"] for c in health["caller_feedback"]}
         assert "my-custom-bot:background_lookup" in callers
 
+    def test_retrieve_preserves_portable_caller_id_when_role_is_also_sent(self, store, cfg):
+        dispatch("flux_store", {"content": "mcp portable caller"}, store, cfg)
+        dispatch(
+            "flux_retrieve",
+            {
+                "query": "mcp portable caller",
+                "caller_id": "codex:chat",
+                "role": "chat",
+            },
+            store,
+            cfg,
+        )
+
+        health = dispatch("flux_health", {}, store, cfg)
+        callers = {c["caller_id"] for c in health["caller_feedback"]}
+        assert "codex:chat" in callers
+        assert "codex_chat:chat" not in callers
+
 
 # ---------------------------------------------------------------- unknown tool
 

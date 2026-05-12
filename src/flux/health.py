@@ -213,7 +213,9 @@ def compose_caller_id(
 ) -> str:
     """Return the portable caller_id form: arbitrary client + controlled role."""
     if client or role:
-        resolved_client = _slug(client or fallback, "unknown")
+        fallback_text = str(fallback or "").strip()
+        fallback_client = fallback_text.split(":", 1)[0] if ":" in fallback_text else fallback_text
+        resolved_client = _slug(client or fallback_client, "unknown")
         resolved_role = _caller_role(role, "chat")
         return f"{resolved_client}:{resolved_role}"
     return str(fallback or "unknown").strip() or "unknown"
