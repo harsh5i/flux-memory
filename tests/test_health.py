@@ -420,6 +420,31 @@ class TestFluxHealth:
         assert "codex:background_lookup" in callers
         assert "codex:chat" not in callers
 
+    def test_feedback_compliance_reclassifies_codex_hyperpersonalized_suggestions(self, store):
+        now = _now()
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "query": (
+                    "Generate 0 to 3 hyperpersonalized suggestions for what this user "
+                    "can do with Codex in this local project"
+                ),
+                "grain_ids": ["g1"],
+                "grains_count": 1,
+                "caller_id": "codex:chat",
+            },
+            trace_id="trace-hyperpersonalized",
+            now=now,
+        )
+
+        result = flux_health(store, now=now)
+        callers = {c["caller_id"] for c in result["caller_feedback"]}
+
+        assert "codex:background_lookup" in callers
+        assert "codex:chat" not in callers
+
     def test_feedback_compliance_accepts_arbitrary_client_with_standard_role(self, store):
         now = _now()
         log_event(

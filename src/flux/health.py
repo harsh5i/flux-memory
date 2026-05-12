@@ -205,6 +205,19 @@ def _display_client(client: str) -> str:
     return " ".join(part.capitalize() for part in parts) if parts else "Unknown"
 
 
+def _is_codex_suggestion_prompt(query: str) -> bool:
+    if "ambient suggestions" in query:
+        return True
+    if "hyperpersonalized suggestions" in query:
+        return True
+    return (
+        query.startswith("generate 0 to 3")
+        and "suggestions" in query
+        and "codex" in query
+        and "local project" in query
+    )
+
+
 def compose_caller_id(
     client: str | None = None,
     role: str | None = None,
@@ -236,13 +249,17 @@ def caller_identity(
     else:
         raw = str(caller_id or "").strip()
         raw_l = raw.lower()
-        ambient_prompt = "ambient suggestions" in query_l
+        suggestion_prompt = _is_codex_suggestion_prompt(query_l)
         memory_prompt = "memory writing agent" in query_l
+        codex_suggestion_caller = (
+            raw_l in {"codex", "codex:chat", "default", "unknown", "anonymous", ""}
+            or raw_l.startswith("codex_ambient")
+        )
 
         if (
             raw_l == "ambient_suggestions"
             or raw_l.startswith("codex_ambient")
-            or (raw_l in {"codex", "default", "unknown", "anonymous", ""} and ambient_prompt)
+            or (codex_suggestion_caller and suggestion_prompt)
         ):
             client_id, role_id = "codex", "background_lookup"
         elif (

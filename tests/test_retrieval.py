@@ -262,6 +262,39 @@ class TestFluxRetrieve:
 
         assert isinstance(result, RetrievalResult)
 
+    def test_codex_hyperpersonalized_suggestion_pending_feedback_does_not_block_chat(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        cfg = Config(FEEDBACK_ENFORCEMENT_GRACE_SECONDS=0)
+        old = _now() - timedelta(seconds=1)
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "query": (
+                    "Generate 0 to 3 hyperpersonalized suggestions for what this user "
+                    "can do with Codex in this local project"
+                ),
+                "grain_ids": ["g1"],
+                "grains_count": 1,
+                "caller_id": "codex:chat",
+            },
+            trace_id="trace-hyperpersonalized",
+            now=old,
+        )
+
+        result = flux_retrieve(
+            "next real chat query",
+            store=store,
+            llm=llm,
+            emb=emb,
+            cfg=cfg,
+            caller_id="codex:chat",
+        )
+
+        assert isinstance(result, RetrievalResult)
+
     def test_feedback_clears_pending_retrieval_block(self, store):
         llm = MockLLMBackend()
         emb = MockEmbeddingBackend()
