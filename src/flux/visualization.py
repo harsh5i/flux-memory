@@ -131,7 +131,113 @@ def cluster_view(store: FluxStore) -> dict:
     return {"clusters": clusters}
 
 
+def grain_dossier(store: FluxStore, grain_id: str) -> dict:
+    """Return detailed Chronicle inspector data for one grain."""
+    row = store.conn.execute(
+        """
+        SELECT id, content, provenance, decay_class, status, created_at
+        FROM grains WHERE id = ?
+        """,
+        (grain_id,),
+    ).fetchone()
+    if row is None:
+        return {"error": "not found"}
+
+    degree_row = store.conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM conduits
+        WHERE from_id = ? OR to_id = ?
+        """,
+        (grain_id, grain_id),
+    ).fetchone()
+    degree = int(degree_row["n"] if degree_row else 0)
+
+    conduit_rows = store.conn.execute(
+        """
+        SELECT from_id, to_id, weight, direction
+        FROM conduits
+        WHERE from_id = ? OR to_id = ?
+        ORDER BY weight DESC
+        LIMIT 10
+        """,
+        (grain_id, grain_id),
+    ).fetchall()
+    conduits = []
+    for conduit in conduit_rows:
+        other_id = conduit["to_id"] if conduit["from_id"] == grain_id else conduit["from_id"]
+        direction = conduit["direction"]
+        if direction != "bidirectional":
+            direction = "outgoing" if conduit["from_id"] == grain_id else "incoming"
+        conduits.append({
+            "other_id": other_id,
+            "other_snippet": _node_snippet(store, other_id),
+            "weight": conduit["weight"],
+            "direction": direction,
+        })
+
+    retrieval_row = store.conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM events
+        WHERE event = 'grains_returned' AND data LIKE ?
+        """,
+        (f"%{grain_id}%",),
+    ).fetchone()
+    retrieval_count = int(retrieval_row["n"] if retrieval_row else 0)
+
+    feedback_rows = store.conn.execute(
+        """
+        SELECT
+          timestamp,
+          json_extract(data, '$.action') AS action,
+          json_extract(data, '$.effective_signal') AS effective_signal,
+          json_extract(data, '$.caller_id') AS caller_id
+        FROM events
+        WHERE event = 'feedback_received'
+          AND json_extract(data, '$.grain_id') = ?
+        ORDER BY timestamp DESC
+        LIMIT 10
+        """,
+        (grain_id,),
+    ).fetchall()
+    feedback = [{
+        "timestamp": f["timestamp"],
+        "action": f["action"],
+        "effective_signal": f["effective_signal"],
+        "caller_id": f["caller_id"],
+    } for f in feedback_rows]
+
+    return {
+        "grain": {
+            "id": row["id"],
+            "content": row["content"],
+            "provenance": row["provenance"],
+            "decay_class": row["decay_class"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+        },
+        "degree": degree,
+        "conduits": conduits,
+        "retrieval_count": retrieval_count,
+        "feedback": feedback,
+    }
+
+
 # ----------------------------------------------------------------- internals
+
+def _node_snippet(store: FluxStore, node_id: str) -> str:
+    row = store.conn.execute(
+        "SELECT content FROM grains WHERE id = ?",
+        (node_id,),
+    ).fetchone()
+    if row is not None:
+        return (row["content"] or "")[:90]
+    row = store.conn.execute(
+        "SELECT feature FROM entries WHERE id = ?",
+        (node_id,),
+    ).fetchone()
+    if row is not None:
+        return (row["feature"] or "")[:90]
+    return node_id[:90]
 
 def _load_graph(store: FluxStore, now: datetime) -> tuple[list[dict], list[dict]]:
     from .propagation import effective_weight as _eff_weight

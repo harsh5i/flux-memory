@@ -2160,7 +2160,7 @@ def run_dashboard(
     import time as _time
     from . import health as _health
     from .health import flux_health
-    from .visualization import cluster_view, export_json
+    from .visualization import cluster_view, export_json, grain_dossier
 
     # ---- SSE: every log_event in this process is pushed to subscribers ----
     _sse_clients: set = set()
@@ -2274,6 +2274,15 @@ def run_dashboard(
                     with store.lock():
                         return chronicle_data(store)
                 self._send(200, "application/json", _cached_json("/api/chronicle", _compute))
+            elif path == "/api/grain":
+                query = parse_qs(parsed.query)
+                grain_id = (query.get("id", [""])[0] or "").strip()
+                if not grain_id:
+                    self._send(400, "application/json", b'{"error": "id required"}')
+                else:
+                    with store.lock():
+                        data = grain_dossier(store, grain_id)
+                    self._send(200, "application/json", json.dumps(data, default=str).encode())
             elif path == "/api/vitals":
                 query = parse_qs(parsed.query)
                 try:

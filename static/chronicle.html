@@ -67,6 +67,19 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
 .pin .nb{padding:6px 8px;border-left:2px solid;margin-bottom:5px;font-size:10px;line-height:1.5;cursor:pointer;background:rgba(80,120,200,0.05)}
 .pin .nb:hover{background:rgba(80,120,200,0.14)}
 .pin .nb .w{float:right;font-size:9px;opacity:.6}
+.pin .dossier{margin-top:11px;padding-top:10px;border-top:1px solid rgba(80,120,200,0.18)}
+.pin .d-full{max-height:140px;overflow-y:auto;white-space:pre-wrap;color:#e8f2ff;background:rgba(80,120,200,0.05);border:1px solid rgba(80,120,200,0.12);border-radius:6px;padding:8px;margin-bottom:8px}
+.pin .d-stat{display:flex;justify-content:space-between;align-items:center;margin:6px 0 9px;color:rgba(200,218,240,0.55);font-size:10px}
+.pin .d-stat b{font-size:12px;color:#22d3ee;font-weight:500}
+.pin .fb{display:grid;grid-template-columns:1fr auto;gap:1px 8px;padding:6px 0;border-bottom:1px solid rgba(80,120,200,0.12);font-size:10px}
+.pin .fb:last-child{border-bottom:none}
+.pin .fb .act{text-transform:capitalize}
+.pin .fb .act.reinforced{color:#34d399}
+.pin .fb .act.penalized{color:#fb7185}
+.pin .fb .sig{font-family:inherit;color:rgba(200,218,240,0.75);text-align:right}
+.pin .fb .dt,.pin .fb .caller{color:rgba(200,218,240,0.38);font-size:9px}
+.pin .fb .caller{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pin .d-empty{font-size:10px;color:rgba(200,218,240,0.38)}
 .hint{position:absolute;bottom:10px;left:14px;font-size:9px;color:rgba(200,218,240,0.3);z-index:54;pointer-events:none}
 .syspanel{position:absolute;bottom:12px;right:14px;width:268px;background:rgba(4,9,22,0.92);border:1px solid rgba(80,120,200,0.2);border-radius:8px;font-size:10px;z-index:55;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
 .sys-head{padding:8px 12px;font-size:9px;letter-spacing:.16em;color:rgba(200,218,240,0.55);cursor:pointer;user-select:none;display:flex;gap:8px;align-items:center}
@@ -182,6 +195,65 @@ const sctx = staticLayer.getContext('2d');
 
 const parseT = s => new Date(s.replace(" ", "T").replace(/(\.\d+)?(Z|\+00:00)?$/, "Z")).getTime();
 const isLive = () => !playing && cursor >= T1 - 1;
+let dossierSeq = 0;
+
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function fmtSignal(v) {
+  if (v === null || v === undefined || v === "") return "";
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(2) : esc(v);
+}
+
+function fmtDate(v) {
+  const d = new Date(String(v).replace(" ", "T"));
+  return Number.isNaN(d.getTime()) ? esc(v) : d.toLocaleString();
+}
+
+function renderDossier(d) {
+  if (!d || d.error) {
+    return `<div class="dossier"><div class="nb-title">dossier</div><div class="d-empty">not found</div></div>`;
+  }
+  const fbs = d.feedback || [];
+  const feedback = fbs.length ? fbs.map(f => {
+    const action = String(f.action || "feedback");
+    const cls = action === "reinforced" ? "reinforced" : (action === "penalized" ? "penalized" : "");
+    return `<div class="fb">
+      <span class="act ${cls}">${esc(action.replaceAll("_", " "))}</span>
+      <span class="sig">${fmtSignal(f.effective_signal)}</span>
+      <span class="dt">${fmtDate(f.timestamp)}</span>
+      <span class="caller">${esc(f.caller_id || "")}</span>
+    </div>`;
+  }).join("") : `<div class="d-empty">no feedback</div>`;
+  return `<div class="dossier">
+    <div class="nb-title">full content</div>
+    <div class="d-full">${esc(d.grain.content)}</div>
+    <div class="d-stat"><span>retrieval count</span><b>${Number(d.retrieval_count || 0)}</b></div>
+    <div class="nb-title">feedback history</div>
+    ${feedback}
+  </div>`;
+}
+
+async function loadDossier(i, grainId) {
+  const seq = ++dossierSeq;
+  const body = document.getElementById('pin-body');
+  body.insertAdjacentHTML('beforeend', `<div class="dossier" id="dossier-${seq}"><div class="nb-title">dossier</div><div class="d-empty">loading...</div></div>`);
+  try {
+    const resp = await fetch(`/api/grain?id=${encodeURIComponent(grainId)}`, {cache: "no-store"});
+    const d = await resp.json();
+    if (selected !== i || seq !== dossierSeq) return;
+    const el = document.getElementById(`dossier-${seq}`);
+    if (el) el.outerHTML = renderDossier(d);
+  } catch (err) {
+    if (selected !== i || seq !== dossierSeq) return;
+    const el = document.getElementById(`dossier-${seq}`);
+    if (el) el.outerHTML = `<div class="dossier"><div class="nb-title">dossier</div><div class="d-empty">unavailable</div></div>`;
+  }
+}
 
 function resize() {
   stage.width = staticLayer.width = wrap.clientWidth * DPR;
@@ -552,15 +624,16 @@ function select(i) {
   const g = G[i];
   const nbs = (adj.get(i) || []).slice().sort((a, b) => b.w - a.w).slice(0, 12);
   const tier = w => w >= 0.8 ? "#facc15" : (w >= 0.5 ? "#22d3ee" : "rgba(80,140,220,0.6)");
-  document.getElementById('pin-body').innerHTML = `<div>${g.snip}</div>
+  document.getElementById('pin-body').innerHTML = `<div>${esc(g.snip)}</div>
     <div class="p-meta">created ${new Date(g.t).toLocaleString()}<br>
-    ${g.prov.replaceAll("_"," ")} · ${g.dc} · ${g.deg} conduits</div>
+    ${esc(g.prov.replaceAll("_"," "))} · ${esc(g.dc)} · ${g.deg} conduits</div>
     <div class="nb-title">${nbs.length ? `connected grains (${(adj.get(i) || []).length})` : "no grain-to-grain conduits in view"}</div>` +
     nbs.map(({j, w}) => `<div class="nb" data-j="${j}" style="border-color:${tier(w)}">
-      <span class="w" style="color:${tier(w)}">${w.toFixed(2)}</span>${G[j].snip.slice(0, 80)}</div>`).join("");
+      <span class="w" style="color:${tier(w)}">${w.toFixed(2)}</span>${esc(G[j].snip.slice(0, 80))}</div>`).join("");
   const pin = document.getElementById('pin');
   pin.classList.add('show');
   pin.querySelectorAll('.nb').forEach(el => el.addEventListener('click', () => select(+el.dataset.j)));
+  loadDossier(i, g.id);
 }
 document.getElementById('pin-close').addEventListener('click', () => {
   document.getElementById('pin').classList.remove('show'); selected = -1; staticDirty = true;
