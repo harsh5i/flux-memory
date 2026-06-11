@@ -2160,7 +2160,7 @@ def run_dashboard(
     import time as _time
     from . import health as _health
     from .health import flux_health
-    from .visualization import cluster_view, export_json
+    from .visualization import cluster_view, export_json, trace_walk
 
     # ---- SSE: every log_event in this process is pushed to subscribers ----
     _sse_clients: set = set()
@@ -2267,6 +2267,12 @@ def run_dashboard(
                 trace_id = query.get("trace_id", [""])[0]
                 with store.lock():
                     data = _trace_details(store, trace_id=trace_id)
+                self._send(200, "application/json", json.dumps(data, default=str).encode())
+            elif path == "/api/trace_walk":
+                query = parse_qs(parsed.query)
+                trace_id = query.get("trace_id", [""])[0]
+                with store.lock():
+                    data = trace_walk(store, trace_id)
                 self._send(200, "application/json", json.dumps(data, default=str).encode())
             elif path == "/api/chronicle":
                 def _compute():
