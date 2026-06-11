@@ -795,6 +795,24 @@ function drawSearch(nowMs) {
 
 // ---------- live activity ----------------------------------------------------
 let lastEventTs = new Date().toISOString();
+const pendingNew = new Set();        // grains stored live, awaiting a data refresh
+let refreshTimer = null;
+function scheduleRefresh() {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(async () => {
+    refreshTimer = null;
+    await refreshData();
+    for (const gid of pendingNew) {
+      const i = byId.get(gid);
+      if (i != null) {
+        activeGrains.set(i, {until: performance.now() + 6000, color: "#22d3ee"});
+        anims.push({kind: "pulse", x: G[i].x, y: G[i].y, color: "#22d3ee",
+                    start: performance.now(), dur: 1800});
+        pendingNew.delete(gid);
+      }
+    }
+  }, 4000);
+}
 
 function recordRetrieval(ev) {
   if (ev.event !== "grains_returned") return;
@@ -903,7 +921,17 @@ function spawnFor(ev) {
 
   if (ev.event === "grain_stored") {
     const i = idxOf(d.grain_id);
-    lightGrain(i, "#22d3ee", 6000); pulse(G[i], "#22d3ee");
+    if (i >= 0) {
+      lightGrain(i, "#22d3ee", 6000); pulse(G[i], "#22d3ee");
+    } else {
+      // brand-new grain: not in the loaded dataset yet — bump the counter
+      // optimistically, refresh soon, then pulse it at its real position
+      pendingNew.add(d.grain_id);
+      const el = document.getElementById('mp-grains');
+      const n = parseInt(el.textContent.replace(/,/g, ""), 10);
+      if (!isNaN(n)) el.textContent = (n + 1).toLocaleString();
+      scheduleRefresh();
+    }
   } else if (ev.event === "grain_deduplicated") {
     const i = idxOf(d.existing_grain_id);
     lightGrain(i, "#a78bfa", 5000); pulse(G[i], "#a78bfa");
@@ -1095,7 +1123,7 @@ function convexHull(pts) {
   } catch (e) {}
   setInterval(pollEvents, 4000);
   setInterval(pollHealth, 10000);
-  setInterval(() => { if (isLive()) refreshData(); }, 60000);
+  setInterval(() => { if (isLive()) refreshData(); }, 30000);
 })();
 </script>
 </body></html>
