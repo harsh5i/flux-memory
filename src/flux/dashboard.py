@@ -2168,7 +2168,7 @@ def run_dashboard(
         "/api/graph": 8.0,
         "/api/clusters": 8.0,
         "/api/vitals": 30.0,
-        "/api/chronicle": 300.0,
+        "/api/chronicle": 60.0,
     }
 
     def _get_inflight_lock(key: str) -> _threading.Lock:

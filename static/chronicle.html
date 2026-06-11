@@ -8,7 +8,7 @@
 html,body{height:100%;overflow:hidden;background:#020408;font-family:'IBM Plex Mono',monospace;color:#c8daf0}
 .shell{height:100%;display:flex;flex-direction:column}
 
-.topbar{display:flex;align-items:center;gap:18px;padding:12px 18px;border-bottom:1px solid rgba(80,120,200,0.15);flex:0 0 auto}
+.topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid rgba(80,120,200,0.15);flex:0 0 auto;flex-wrap:wrap}
 .flux-nav{position:relative;font-size:13px;letter-spacing:.06em;color:#22d3ee;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;z-index:60}
 .flux-nav-arrow{font-size:9px;opacity:.5}
 .flux-nav-menu{display:none;position:absolute;top:24px;left:-8px;min-width:240px;background:rgba(4,9,22,0.98);border:1px solid rgba(80,120,200,0.25);border-radius:7px;padding:5px 0;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
@@ -17,33 +17,52 @@ html,body{height:100%;overflow:hidden;background:#020408;font-family:'IBM Plex M
 .flux-nav-item:hover{background:rgba(80,120,200,0.12);color:#c8daf0}
 .flux-nav-item.active{color:#22d3ee;border-left-color:#22d3ee}
 .flux-nav-item-sub{font-size:9px;opacity:.4;display:block;margin-top:1px}
-.cursor-date{font-size:13px;color:#e8f2ff;letter-spacing:.04em;min-width:130px}
-.counter{font-size:10px;color:rgba(200,218,240,0.45)}
-.legend{display:flex;gap:14px;margin-left:auto;font-size:9px;color:rgba(200,218,240,0.5);align-items:center}
-.legend .sw{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+
+.metric-pill{display:flex;flex-direction:column;align-items:center;padding:1px 10px;border-left:1px solid rgba(80,120,200,0.15)}
+.metric-pill .ml{font-size:8px;color:rgba(200,218,240,0.35);letter-spacing:.1em;text-transform:uppercase}
+.metric-pill .mv{font-size:13px;color:#e8f2ff}
+.mv.cy{color:#22d3ee}.mv.gn{color:#34d399}.mv.rs{color:#fb7185}.mv.am{color:#f59e0b}
+
+.live-badge{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:10px;letter-spacing:.12em}
+.live-dot{width:7px;height:7px;border-radius:50%;background:#34d399;animation:lp 1.6s infinite}
+.live-badge.replay .live-dot{background:#f59e0b;animation:none}
+@keyframes lp{0%,100%{opacity:1}50%{opacity:.25}}
+.ticker{font-size:9px;color:rgba(200,218,240,0.45);max-width:330px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .stage-wrap{flex:1 1 auto;position:relative;min-height:0}
-canvas{position:absolute;inset:0;width:100%;height:100%}
-#hovercanvas{cursor:crosshair}
+canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+
+.legend{position:absolute;top:12px;left:14px;font-size:9px;color:rgba(200,218,240,0.55);background:rgba(4,9,22,0.75);border:1px solid rgba(80,120,200,0.15);border-radius:7px;padding:9px 12px;line-height:2;z-index:55}
+.legend .sw{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.legend .ln{display:inline-block;width:16px;height:0;margin-right:6px;vertical-align:3px;border-top:2px solid}
+.legend label{display:block;cursor:pointer;user-select:none}
+.legend input{vertical-align:-1px;margin-right:5px;accent-color:#22d3ee}
 
 .controls{flex:0 0 auto;padding:10px 18px 14px;border-top:1px solid rgba(80,120,200,0.15);display:flex;align-items:center;gap:14px}
 .play-btn{background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.45);color:#22d3ee;width:34px;height:30px;border-radius:5px;cursor:pointer;font-size:12px;font-family:inherit}
 .play-btn:hover{background:rgba(34,211,238,0.2)}
+.now-btn{background:none;border:1px solid rgba(52,211,153,0.4);color:#34d399;height:30px;padding:0 12px;border-radius:5px;cursor:pointer;font-size:10px;font-family:inherit}
 .speed{display:flex;gap:2px}
 .speed button{background:none;border:1px solid rgba(80,120,200,0.25);color:rgba(200,218,240,0.5);font-size:9px;padding:3px 8px;cursor:pointer;font-family:inherit}
 .speed button.active{color:#22d3ee;border-color:rgba(34,211,238,0.5)}
 .timeline{flex:1;position:relative;height:46px;cursor:pointer}
 #histcanvas{position:absolute;inset:0;width:100%;height:100%}
+.cursor-date{font-size:12px;color:#e8f2ff;min-width:96px;text-align:right}
+
 .tip{position:fixed;pointer-events:none;background:rgba(4,9,22,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:7px;padding:9px 12px;font-size:10px;color:#c8daf0;z-index:70;opacity:0;transition:opacity .08s;box-shadow:0 6px 24px rgba(0,0,0,0.7);max-width:300px;line-height:1.55}
 .tip.show{opacity:1}
 .tip .t-date{color:rgba(200,218,240,0.45);font-size:9px}
 .tip .t-meta{color:#22d3ee;font-size:9px;margin-top:3px}
 
-.pin{position:absolute;top:14px;right:14px;width:300px;background:rgba(4,9,22,0.96);border:1px solid rgba(34,211,238,0.3);border-radius:8px;padding:13px 15px;font-size:11px;line-height:1.6;z-index:55;display:none;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
+.pin{position:absolute;top:12px;right:14px;width:320px;max-height:70%;overflow-y:auto;background:rgba(4,9,22,0.96);border:1px solid rgba(34,211,238,0.3);border-radius:8px;padding:13px 15px;font-size:11px;line-height:1.6;z-index:55;display:none;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
 .pin.show{display:block}
 .pin .close{position:absolute;top:7px;right:10px;cursor:pointer;color:rgba(200,218,240,0.4);font-size:13px}
-.pin .p-meta{color:#22d3ee;font-size:9px;margin-top:7px;line-height:1.7}
-.hint{position:absolute;bottom:10px;left:14px;font-size:9px;color:rgba(200,218,240,0.3);z-index:55;pointer-events:none}
+.pin .p-meta{color:#22d3ee;font-size:9px;margin:7px 0 9px;line-height:1.7}
+.pin .nb-title{font-size:9px;letter-spacing:.14em;color:rgba(200,218,240,0.4);text-transform:uppercase;margin-bottom:5px}
+.pin .nb{padding:6px 8px;border-left:2px solid;margin-bottom:5px;font-size:10px;line-height:1.5;cursor:pointer;background:rgba(80,120,200,0.05)}
+.pin .nb:hover{background:rgba(80,120,200,0.14)}
+.pin .nb .w{float:right;font-size:9px;opacity:.6}
+.hint{position:absolute;bottom:10px;left:14px;font-size:9px;color:rgba(200,218,240,0.3);z-index:54;pointer-events:none}
 </style>
 </head>
 <body>
@@ -61,32 +80,43 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
       <a href="/vitals" class="flux-nav-item">Vitals<span class="flux-nav-item-sub">health statistics + timelines</span></a>
     </div>
   </div>
-  <span class="cursor-date" id="cursor-date">—</span>
-  <span class="counter" id="counter">loading…</span>
-  <div class="legend">
-    <span><span class="sw" style="background:#22d3ee"></span>user stated</span>
-    <span><span class="sw" style="background:#a78bfa"></span>ai stated</span>
-    <span><span class="sw" style="background:#f59e0b"></span>ai inferred</span>
-    <span><span class="sw" style="background:#34d399"></span>external</span>
-    <span><span class="sw" style="background:none;border:1px solid #fb7185"></span>orphan</span>
-  </div>
+  <div class="metric-pill"><span class="ml">Grains</span><span class="mv cy" id="mp-grains">—</span></div>
+  <div class="metric-pill"><span class="ml">Conduits</span><span class="mv" id="mp-conduits">—</span></div>
+  <div class="metric-pill"><span class="ml">Highways</span><span class="mv am" id="mp-highways">—</span></div>
+  <div class="metric-pill"><span class="ml">Retrieval</span><span class="mv gn" id="mp-retrieval">—</span></div>
+  <div class="metric-pill"><span class="ml">Fallback</span><span class="mv" id="mp-fallback">—</span></div>
+  <div class="metric-pill"><span class="ml">Feedback</span><span class="mv" id="mp-feedback">—</span></div>
+  <div class="live-badge" id="live-badge"><div class="live-dot"></div><span id="live-label">LIVE</span></div>
+  <div class="ticker" id="ticker">—</div>
 </div>
 
 <div class="stage-wrap" id="stage-wrap">
-  <canvas id="maincanvas"></canvas>
-  <canvas id="hovercanvas"></canvas>
+  <canvas id="stage"></canvas>
+  <div class="legend">
+    <span><span class="sw" style="background:#22d3ee"></span>user stated</span><br>
+    <span><span class="sw" style="background:#a78bfa"></span>ai stated</span><br>
+    <span><span class="sw" style="background:#f59e0b"></span>ai inferred</span><br>
+    <span><span class="sw" style="background:#34d399"></span>external</span><br>
+    <span><span class="sw" style="background:none;border:1px solid #fb7185"></span>orphan</span><br>
+    <span><span class="ln" style="border-color:#facc15"></span>highway ≥.80</span><br>
+    <span><span class="ln" style="border-color:rgba(34,211,238,0.6)"></span>strong ≥.50</span><br>
+    <span><span class="ln" style="border-color:rgba(80,140,220,0.3)"></span>weak</span>
+    <label><input type="checkbox" id="hw-only">highways only</label>
+  </div>
   <div class="pin" id="pin"><span class="close" id="pin-close">×</span><div id="pin-body"></div></div>
-  <div class="hint">drag to pan · wheel to zoom · hover for grain · click to pin · space to play</div>
+  <div class="hint">drag pan · wheel zoom · hover grain · click = neighborhood · esc clears · space plays</div>
 </div>
 
 <div class="controls">
   <button class="play-btn" id="play-btn" title="play / pause (space)">▶</button>
+  <button class="now-btn" id="now-btn" title="jump to now (live)">NOW</button>
   <div class="speed" id="speed">
     <button data-d="14">2w/s</button>
     <button class="active" data-d="4">4d/s</button>
     <button data-d="1">1d/s</button>
   </div>
   <div class="timeline" id="timeline"><canvas id="histcanvas"></canvas></div>
+  <span class="cursor-date" id="cursor-date">—</span>
 </div>
 
 </div>
@@ -101,95 +131,182 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
 
 const COLORS = {user_stated:"#22d3ee", ai_stated:"#a78bfa", ai_inferred:"#f59e0b", external_source:"#34d399"};
 const wrap = document.getElementById('stage-wrap');
-const main = document.getElementById('maincanvas'), mctx = main.getContext('2d');
-const hover = document.getElementById('hovercanvas'), hctx = hover.getContext('2d');
+const stage = document.getElementById('stage'), ctx = stage.getContext('2d');
 const hist = document.getElementById('histcanvas'), histctx = hist.getContext('2d');
 const tip = document.getElementById('tip');
 const DPR = window.devicePixelRatio || 1;
 
-let G = [], E = [], T0 = 0, T1 = 1;       // grains, edges, time range (ms)
-let cursor = 0;                            // current time (ms)
+let G = [], E = [], byId = new Map(), adj = new Map();
+let T0 = 0, T1 = 1, cursor = 0;
 let playing = false, daysPerSec = 4;
-let cam = {x: 0, y: 0, k: 1};              // pan/zoom
-let pinned = null, hovered = null;
+let cam = {x: 0, y: 0, k: 1};
+let selected = -1, hovered = -1, hwOnly = false;
+let anims = [];                       // transient activity animations
+let staticDirty = true;
+const staticLayer = document.createElement('canvas');
+const sctx = staticLayer.getContext('2d');
 
 const parseT = s => new Date(s.replace(" ", "T").replace(/(\.\d+)?(Z|\+00:00)?$/, "Z")).getTime();
+const isLive = () => !playing && cursor >= T1 - 1;
 
 function resize() {
-  for (const c of [main, hover]) {
-    c.width = wrap.clientWidth * DPR; c.height = wrap.clientHeight * DPR;
-  }
+  stage.width = staticLayer.width = wrap.clientWidth * DPR;
+  stage.height = staticLayer.height = wrap.clientHeight * DPR;
   const tl = document.getElementById('timeline');
   hist.width = tl.clientWidth * DPR; hist.height = tl.clientHeight * DPR;
-  drawHist(); draw();
+  drawHistBase(); staticDirty = true;
 }
 window.addEventListener('resize', resize);
 
-// world (0..1) -> screen px
 function toScreen(x, y) {
-  const W = main.width, H = main.height, S = Math.min(W, H) * 0.92, ox = (W - S) / 2, oy = (H - S) / 2;
+  const W = stage.width, H = stage.height, S = Math.min(W, H) * 0.92, ox = (W - S) / 2, oy = (H - S) / 2;
   return [(x * S + ox) * cam.k + cam.x, (y * S + oy) * cam.k + cam.y];
 }
 
 function visibleCount() {
   let lo = 0, hi = G.length;
   while (lo < hi) { const m = (lo + hi) >> 1; (G[m].t <= cursor) ? lo = m + 1 : hi = m; }
-  return lo;   // grains sorted by t
+  return lo;
 }
 
-function draw() {
-  const W = main.width, H = main.height;
-  mctx.clearRect(0, 0, W, H);
+// ---------- static scene (points + non-highway edges) ----------------------
+function renderStatic() {
+  const W = staticLayer.width, H = staticLayer.height;
+  sctx.clearRect(0, 0, W, H);
   const n = visibleCount();
+  const selSet = selected >= 0 ? neighborSet(selected) : null;
 
-  // edges first (faint), only between visible grains
-  mctx.lineWidth = Math.max(0.4, 0.5 * cam.k) * DPR;
-  for (const e of E) {
-    if (e.t > cursor) continue;
-    const a = G[e.a], b = G[e.b];
-    if (a.t > cursor || b.t > cursor) continue;
-    const [x1, y1] = toScreen(a.x, a.y), [x2, y2] = toScreen(b.x, b.y);
-    mctx.strokeStyle = `rgba(80,140,220,${0.05 + e.w * 0.16})`;
-    mctx.beginPath(); mctx.moveTo(x1, y1); mctx.lineTo(x2, y2); mctx.stroke();
+  if (!hwOnly) {
+    for (const e of E) {
+      if (e.w >= 0.8) continue;                       // highways live on the animated layer
+      if (e.t > cursor) continue;
+      const a = G[e.a], b = G[e.b];
+      if (a.t > cursor || b.t > cursor) continue;
+      const inSel = selSet && (e.a === selected || e.b === selected);
+      if (selSet && !inSel) continue;                 // selection: only its edges
+      const [x1, y1] = toScreen(a.x, a.y), [x2, y2] = toScreen(b.x, b.y);
+      if (e.w >= 0.5) {
+        sctx.strokeStyle = inSel ? "rgba(34,211,238,0.85)" : "rgba(34,211,238,0.30)";
+        sctx.lineWidth = 1.1 * DPR;
+      } else {
+        sctx.strokeStyle = inSel ? "rgba(120,170,240,0.7)" : `rgba(80,140,220,${0.05 + e.w * 0.2})`;
+        sctx.lineWidth = 0.6 * DPR;
+      }
+      sctx.beginPath(); sctx.moveTo(x1, y1); sctx.lineTo(x2, y2); sctx.stroke();
+    }
   }
 
-  // grains
-  const recentCut = cursor - 36e5 * 24 * 2;   // last 2 days of replay-time glow
+  const recentCut = cursor - 36e5 * 48;
   for (let i = 0; i < n; i++) {
     const g = G[i];
     const [sx, sy] = toScreen(g.x, g.y);
     if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;
+    const dim = selSet && !selSet.has(i);
     const r = (g.dc === "core" ? 3.2 : 1.9) * DPR * Math.sqrt(cam.k);
     const col = COLORS[g.prov] || "#8fa8c8";
-    if (g.t > recentCut) {            // newborn glow
-      mctx.beginPath(); mctx.arc(sx, sy, r * 2.6, 0, 7);
-      mctx.fillStyle = col + "33"; mctx.fill();
+    if (!dim && g.t > recentCut && playing) {
+      sctx.beginPath(); sctx.arc(sx, sy, r * 2.6, 0, 7);
+      sctx.fillStyle = col + "33"; sctx.fill();
     }
-    mctx.beginPath(); mctx.arc(sx, sy, r, 0, 7);
-    mctx.fillStyle = col; mctx.globalAlpha = g.dc === "core" ? 1 : 0.78;
-    mctx.fill(); mctx.globalAlpha = 1;
-    if (g.deg === 0) {                // orphan ring
-      mctx.beginPath(); mctx.arc(sx, sy, r + 2.2 * DPR, 0, 7);
-      mctx.strokeStyle = "#fb7185"; mctx.lineWidth = 1 * DPR; mctx.stroke();
+    sctx.beginPath(); sctx.arc(sx, sy, r, 0, 7);
+    sctx.fillStyle = col;
+    sctx.globalAlpha = dim ? 0.10 : (g.dc === "core" ? 1 : 0.78);
+    sctx.fill(); sctx.globalAlpha = 1;
+    if (g.deg === 0 && !dim) {
+      sctx.beginPath(); sctx.arc(sx, sy, r + 2.2 * DPR, 0, 7);
+      sctx.strokeStyle = "#fb7185"; sctx.lineWidth = 1 * DPR; sctx.stroke();
+    }
+  }
+  if (selected >= 0 && G[selected].t <= cursor) {
+    const [sx, sy] = toScreen(G[selected].x, G[selected].y);
+    sctx.beginPath(); sctx.arc(sx, sy, 8 * DPR, 0, 7);
+    sctx.strokeStyle = "#e8f2ff"; sctx.lineWidth = 1.6 * DPR; sctx.stroke();
+  }
+}
+
+function neighborSet(i) {
+  const s = new Set([i]);
+  for (const {j} of (adj.get(i) || [])) s.add(j);
+  return s;
+}
+
+// ---------- per-frame composite --------------------------------------------
+function frame(ts) {
+  if (playing) {
+    const dt = frame.last ? (ts - frame.last) / 1000 : 0;
+    cursor = Math.min(T1, cursor + dt * daysPerSec * 864e5);
+    if (cursor >= T1) setPlaying(false);
+    staticDirty = true;
+  }
+  frame.last = ts;
+
+  if (staticDirty) { renderStatic(); drawHistCursor(); updateHud(); staticDirty = false; }
+  ctx.clearRect(0, 0, stage.width, stage.height);
+  ctx.drawImage(staticLayer, 0, 0);
+
+  // highways: always animated (marching dashes) so the strongest paths read instantly
+  const selSet = selected >= 0 ? neighborSet(selected) : null;
+  ctx.setLineDash([7 * DPR, 5 * DPR]);
+  ctx.lineDashOffset = -(ts / 28) % 600;
+  for (const e of E) {
+    if (e.w < 0.8 || e.t > cursor) continue;
+    const a = G[e.a], b = G[e.b];
+    if (a.t > cursor || b.t > cursor) continue;
+    if (selSet && !(e.a === selected || e.b === selected)) { if (!hwOnly) continue; }
+    const [x1, y1] = toScreen(a.x, a.y), [x2, y2] = toScreen(b.x, b.y);
+    ctx.strokeStyle = "rgba(250,204,21,0.85)";
+    ctx.lineWidth = 1.8 * DPR;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // activity animations
+  const now = performance.now();
+  anims = anims.filter(a => now - a.start < a.dur);
+  for (const a of anims) {
+    const p = (now - a.start) / a.dur;
+    if (a.kind === "pulse") {
+      const [sx, sy] = toScreen(a.x, a.y);
+      ctx.beginPath(); ctx.arc(sx, sy, (4 + p * 26) * DPR, 0, 7);
+      ctx.strokeStyle = a.color; ctx.globalAlpha = (1 - p) * 0.9;
+      ctx.lineWidth = 1.6 * DPR; ctx.stroke(); ctx.globalAlpha = 1;
+    } else if (a.kind === "edge") {
+      const [x1, y1] = toScreen(a.x1, a.y1), [x2, y2] = toScreen(a.x2, a.y2);
+      ctx.strokeStyle = a.color; ctx.globalAlpha = (1 - p) * 0.95;
+      ctx.lineWidth = (2.4 - p * 1.5) * DPR;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      // travelling spark
+      const sx = x1 + (x2 - x1) * p, sy = y1 + (y2 - y1) * p;
+      ctx.beginPath(); ctx.arc(sx, sy, 2.6 * DPR, 0, 7);
+      ctx.fillStyle = a.color; ctx.fill(); ctx.globalAlpha = 1;
     }
   }
 
-  document.getElementById('cursor-date').textContent = new Date(cursor).toISOString().slice(0, 10);
-  document.getElementById('counter').textContent = `${n.toLocaleString()} / ${G.length.toLocaleString()} grains`;
-  drawHistCursor();
+  // hover ring
+  if (hovered >= 0) {
+    const [sx, sy] = toScreen(G[hovered].x, G[hovered].y);
+    ctx.beginPath(); ctx.arc(sx, sy, 7 * DPR, 0, 7);
+    ctx.strokeStyle = "#e8f2ff"; ctx.lineWidth = 1.2 * DPR; ctx.stroke();
+  }
+
+  requestAnimationFrame(frame);
 }
 
-// ---- timeline histogram --------------------------------------------------
+function updateHud() {
+  document.getElementById('cursor-date').textContent = new Date(cursor).toISOString().slice(0, 10);
+  const badge = document.getElementById('live-badge');
+  if (isLive()) { badge.classList.remove('replay'); document.getElementById('live-label').textContent = "LIVE"; }
+  else { badge.classList.add('replay'); document.getElementById('live-label').textContent = "REPLAY"; }
+}
+
+// ---------- timeline --------------------------------------------------------
 let histBins = [];
 function buildHist() {
   const days = Math.max(1, Math.round((T1 - T0) / 864e5));
   histBins = new Array(days).fill(0);
-  for (const g of G) {
-    const b = Math.min(days - 1, Math.floor((g.t - T0) / 864e5));
-    histBins[b]++;
-  }
+  for (const g of G) histBins[Math.min(days - 1, Math.floor((g.t - T0) / 864e5))]++;
 }
-function drawHist() {
+function drawHistBase() {
   const W = hist.width, H = hist.height;
   histctx.clearRect(0, 0, W, H);
   if (!histBins.length) return;
@@ -201,125 +318,200 @@ function drawHist() {
   }
 }
 function drawHistCursor() {
-  drawHist();
+  drawHistBase();
   const W = hist.width, H = hist.height;
   const px = ((cursor - T0) / (T1 - T0)) * W;
-  histctx.fillStyle = "rgba(34,211,238,0.12)";
-  histctx.fillRect(0, 0, px, H);
+  histctx.fillStyle = "rgba(34,211,238,0.12)"; histctx.fillRect(0, 0, px, H);
   histctx.strokeStyle = "#22d3ee"; histctx.lineWidth = 1.4 * DPR;
   histctx.beginPath(); histctx.moveTo(px, 0); histctx.lineTo(px, H); histctx.stroke();
 }
 
-// ---- playback ------------------------------------------------------------
-let lastFrame = 0;
-function tick(ts) {
-  if (playing) {
-    const dt = lastFrame ? (ts - lastFrame) / 1000 : 0;
-    cursor = Math.min(T1, cursor + dt * daysPerSec * 864e5);
-    if (cursor >= T1) setPlaying(false);
-    draw();
-  }
-  lastFrame = ts;
-  requestAnimationFrame(tick);
-}
 function setPlaying(p) {
   playing = p;
   document.getElementById('play-btn').textContent = p ? "❚❚" : "▶";
-  if (p && cursor >= T1) cursor = T0;     // replay from start
+  if (p && cursor >= T1) cursor = T0;
+  staticDirty = true;
 }
 document.getElementById('play-btn').addEventListener('click', () => setPlaying(!playing));
+document.getElementById('now-btn').addEventListener('click', () => { setPlaying(false); cursor = T1; staticDirty = true; });
 document.addEventListener('keydown', e => {
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+  if (e.code === "Escape") { selected = -1; document.getElementById('pin').classList.remove('show'); staticDirty = true; }
 });
 document.getElementById('speed').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   document.querySelectorAll('.speed button').forEach(x => x.classList.remove('active'));
   b.classList.add('active'); daysPerSec = +b.dataset.d;
 });
+document.getElementById('hw-only').addEventListener('change', e => { hwOnly = e.target.checked; staticDirty = true; });
 
-// scrub
 const tl = document.getElementById('timeline');
 let scrubbing = false;
 const scrubTo = ev => {
   const r = tl.getBoundingClientRect();
   cursor = T0 + Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * (T1 - T0);
-  draw();
+  staticDirty = true;
 };
-tl.addEventListener('mousedown', ev => { scrubbing = true; scrubTo(ev); });
+tl.addEventListener('mousedown', ev => { scrubbing = true; setPlaying(false); scrubTo(ev); });
 window.addEventListener('mousemove', ev => { if (scrubbing) scrubTo(ev); });
 window.addEventListener('mouseup', () => scrubbing = false);
 
-// ---- pan / zoom ----------------------------------------------------------
-let dragging = false, dragFrom = null;
-hover.addEventListener('mousedown', e => { dragging = true; dragFrom = [e.clientX, e.clientY]; });
+// ---------- pan / zoom / hover / select -------------------------------------
+let dragging = false, dragFrom = null, moved = 0;
+stage.addEventListener('mousedown', e => { dragging = true; moved = 0; dragFrom = [e.clientX, e.clientY]; });
 window.addEventListener('mouseup', () => dragging = false);
-hover.addEventListener('wheel', e => {
+stage.addEventListener('wheel', e => {
   e.preventDefault();
   const f = e.deltaY < 0 ? 1.13 : 1 / 1.13;
   const mx = e.offsetX * DPR, my = e.offsetY * DPR;
   cam.x = mx - (mx - cam.x) * f; cam.y = my - (my - cam.y) * f;
   cam.k = Math.max(0.4, Math.min(40, cam.k * f));
-  draw();
+  staticDirty = true;
 }, {passive: false});
 
-// ---- hover / pin ----------------------------------------------------------
 function nearest(mx, my) {
   const n = visibleCount();
-  let best = null, bd = 14 * DPR;
+  let best = -1, bd = 14 * DPR;
   for (let i = 0; i < n; i++) {
     const [sx, sy] = toScreen(G[i].x, G[i].y);
     const d = Math.hypot(sx - mx, sy - my);
-    if (d < bd) { bd = d; best = G[i]; }
+    if (d < bd) { bd = d; best = i; }
   }
   return best;
 }
-hover.addEventListener('mousemove', e => {
+stage.addEventListener('mousemove', e => {
   if (dragging && dragFrom) {
-    cam.x += (e.clientX - dragFrom[0]) * DPR; cam.y += (e.clientY - dragFrom[1]) * DPR;
+    const dx = e.clientX - dragFrom[0], dy = e.clientY - dragFrom[1];
+    moved += Math.abs(dx) + Math.abs(dy);
+    cam.x += dx * DPR; cam.y += dy * DPR;
     dragFrom = [e.clientX, e.clientY];
-    draw(); return;
+    staticDirty = true; return;
   }
-  const g = nearest(e.offsetX * DPR, e.offsetY * DPR);
-  hctx.clearRect(0, 0, hover.width, hover.height);
-  if (g) {
-    const [sx, sy] = toScreen(g.x, g.y);
-    hctx.beginPath(); hctx.arc(sx, sy, 7 * DPR, 0, 7);
-    hctx.strokeStyle = "#e8f2ff"; hctx.lineWidth = 1.2 * DPR; hctx.stroke();
+  hovered = nearest(e.offsetX * DPR, e.offsetY * DPR);
+  if (hovered >= 0) {
+    const g = G[hovered];
     tip.innerHTML = `<div>${g.snip}</div>
       <div class="t-date">${new Date(g.t).toLocaleString()}</div>
       <div class="t-meta">${g.prov.replaceAll("_"," ")} · ${g.dc} · ${g.deg} conduit${g.deg === 1 ? "" : "s"}${g.deg === 0 ? " · <span style='color:#fb7185'>orphan</span>" : ""}</div>`;
     tip.style.left = (e.clientX + 16) + "px"; tip.style.top = (e.clientY - 8) + "px";
     tip.classList.add("show");
   } else tip.classList.remove("show");
-  hovered = g;
 });
-hover.addEventListener('mouseleave', () => { tip.classList.remove("show"); hctx.clearRect(0, 0, hover.width, hover.height); });
-hover.addEventListener('click', () => {
-  if (dragging) return;
-  if (!hovered) { document.getElementById('pin').classList.remove('show'); return; }
-  pinned = hovered;
-  document.getElementById('pin-body').innerHTML = `<div>${pinned.snip}</div>
-    <div class="p-meta">created ${new Date(pinned.t).toLocaleString()}<br>
-    ${pinned.prov.replaceAll("_"," ")} · ${pinned.dc} · ${pinned.deg} conduits<br>
-    id ${pinned.id.slice(0, 12)}…</div>`;
-  document.getElementById('pin').classList.add('show');
+stage.addEventListener('mouseleave', () => { tip.classList.remove("show"); hovered = -1; });
+stage.addEventListener('click', () => {
+  if (moved > 6) return;                              // it was a drag
+  if (hovered < 0) { selected = -1; document.getElementById('pin').classList.remove('show'); staticDirty = true; return; }
+  select(hovered);
 });
-document.getElementById('pin-close').addEventListener('click', () => document.getElementById('pin').classList.remove('show'));
 
-// ---- load -----------------------------------------------------------------
-(async () => {
+function select(i) {
+  selected = i; staticDirty = true;
+  const g = G[i];
+  const nbs = (adj.get(i) || []).slice().sort((a, b) => b.w - a.w).slice(0, 12);
+  const tier = w => w >= 0.8 ? "#facc15" : (w >= 0.5 ? "#22d3ee" : "rgba(80,140,220,0.6)");
+  document.getElementById('pin-body').innerHTML = `<div>${g.snip}</div>
+    <div class="p-meta">created ${new Date(g.t).toLocaleString()}<br>
+    ${g.prov.replaceAll("_"," ")} · ${g.dc} · ${g.deg} conduits</div>
+    <div class="nb-title">${nbs.length ? `connected grains (${(adj.get(i) || []).length})` : "no grain-to-grain conduits in view"}</div>` +
+    nbs.map(({j, w}) => `<div class="nb" data-j="${j}" style="border-color:${tier(w)}">
+      <span class="w" style="color:${tier(w)}">${w.toFixed(2)}</span>${G[j].snip.slice(0, 80)}</div>`).join("");
+  const pin = document.getElementById('pin');
+  pin.classList.add('show');
+  pin.querySelectorAll('.nb').forEach(el => el.addEventListener('click', () => select(+el.dataset.j)));
+}
+document.getElementById('pin-close').addEventListener('click', () => {
+  document.getElementById('pin').classList.remove('show'); selected = -1; staticDirty = true;
+});
+
+// ---------- live activity ----------------------------------------------------
+let lastEventTs = new Date().toISOString();
+function spawnFor(ev) {
+  const d = ev.data || {};
+  const at = id => byId.has(id) ? G[byId.get(id)] : null;
+  const pulse = (g, color, dur = 1600) => g && anims.push({kind: "pulse", x: g.x, y: g.y, color, start: performance.now(), dur});
+  const edge = (a, b, color, dur = 1300) => { if (a && b) anims.push({kind: "edge", x1: a.x, y1: a.y, x2: b.x, y2: b.y, color, start: performance.now(), dur}); };
+
+  if (ev.event === "grain_stored") pulse(at(d.grain_id), "#22d3ee");
+  else if (ev.event === "grain_deduplicated") pulse(at(d.existing_grain_id), "#a78bfa");
+  else if (ev.event === "grains_returned") (d.grain_ids || []).forEach((gid, k) =>
+    setTimeout(() => pulse(at(gid), "#e8f2ff", 1400), k * 110));
+  else if (ev.event === "feedback_received") pulse(at(d.grain_id), d.action === "penalized" ? "#fb7185" : "#34d399");
+  else if (ev.event === "conduit_reinforced") edge(at(d.from_id), at(d.to_id), "#34d399");
+  else if (ev.event === "conduit_penalized") edge(at(d.from_id), at(d.to_id), "#fb7185");
+  else if (ev.event === "highway_formed") { edge(at(d.from_id), at(d.to_id), "#facc15", 2200); pulse(at(d.to_id), "#facc15", 2200); }
+  else return false;
+  return true;
+}
+function tickerText(ev) {
+  const d = ev.data || {};
+  const m = {
+    grain_stored: () => `stored · ${d.caller_id || ""}`,
+    grain_deduplicated: () => `dedup hit (${(d.similarity || 0).toFixed(2)})`,
+    grains_returned: () => `retrieval · ${d.grains_count} grains · "${(d.query || "").slice(0, 36)}"`,
+    feedback_received: () => `feedback ${d.action} (${(d.effective_signal || 0).toFixed(2)})`,
+    highway_formed: () => `★ highway formed`,
+    fallback_triggered: () => `vector fallback fired`,
+  };
+  return m[ev.event] ? m[ev.event]() : null;
+}
+async function pollEvents() {
+  try {
+    const d = await (await fetch('/api/events?limit=40')).json();
+    const fresh = (d.events || []).filter(e => e.timestamp > lastEventTs).reverse();
+    if (fresh.length) lastEventTs = fresh[fresh.length - 1].timestamp;
+    if (!isLive()) return;
+    let lastTick = null;
+    for (const ev of fresh) { spawnFor(ev); lastTick = tickerText(ev) || lastTick; }
+    if (lastTick) document.getElementById('ticker').textContent = lastTick;
+  } catch (e) { /* server briefly away; retry next poll */ }
+}
+async function pollHealth() {
+  try {
+    const h = await (await fetch('/api/health')).json();
+    const set = (id, v, pct) => document.getElementById(id).textContent =
+      v == null ? "—" : (pct ? Math.round(v * 100) + "%" : Math.round(v).toLocaleString());
+    const sig = n => h.signals?.[n]?.value;
+    set('mp-retrieval', sig('retrieval_success_rate'), true);
+    set('mp-fallback', sig('fallback_trigger_rate'), true);
+    set('mp-feedback', sig('feedback_compliance_rate'), true);
+    set('mp-highways', sig('highway_count'));
+  } catch (e) {}
+}
+async function refreshData(first = false) {
   const d = await (await fetch('/api/chronicle')).json();
+  const prevN = G.length;
   G = d.grains.map(g => ({id: g[0], x: g[1], y: g[2], t: parseT(g[3]), prov: g[4], dc: g[5], deg: g[6], snip: g[7]}));
+  const rawIdx = d.grains.map(g => g[0]);
   G.sort((a, b) => a.t - b.t);
-  E = d.conduits.map(c => ({a: c[0], b: c[1], w: c[2], t: parseT(c[3])}));
-  // re-map edge indices after sort
-  const order = new Map(d.grains.map((g, i) => [g[0], i]));
-  const newIdx = new Map(G.map((g, i) => [g.id, i]));
-  E.forEach(e => { e.a = newIdx.get(d.grains[e.a][0]); e.b = newIdx.get(d.grains[e.b][0]); });
-  T0 = G[0].t; T1 = G[G.length - 1].t + 864e5 * 0.5;
-  cursor = T1;
-  buildHist(); resize();
-  requestAnimationFrame(tick);
+  byId = new Map(G.map((g, i) => [g.id, i]));
+  E = d.conduits.map(c => ({a: byId.get(rawIdx[c[0]]), b: byId.get(rawIdx[c[1]]), w: c[2], t: parseT(c[3])}))
+       .filter(e => e.a != null && e.b != null);
+  adj = new Map();
+  for (const e of E) {
+    if (!adj.has(e.a)) adj.set(e.a, []);
+    if (!adj.has(e.b)) adj.set(e.b, []);
+    adj.get(e.a).push({j: e.b, w: e.w});
+    adj.get(e.b).push({j: e.a, w: e.w});
+  }
+  const wasLive = first || isLive();
+  T0 = G[0].t; T1 = Math.max(G[G.length - 1].t, Date.now());
+  if (wasLive) cursor = T1;
+  document.getElementById('mp-grains').textContent = G.length.toLocaleString();
+  document.getElementById('mp-conduits').textContent = E.length.toLocaleString() + "+";
+  buildHist(); drawHistBase(); staticDirty = true;
+  if (!first && G.length > prevN && isLive()) {
+    for (let i = prevN; i < G.length; i++) anims.push({kind: "pulse", x: G[i].x, y: G[i].y, color: "#22d3ee", start: performance.now(), dur: 1800});
+  }
+}
+
+(async () => {
+  await refreshData(true);
+  resize();
+  requestAnimationFrame(frame);
+  pollHealth();
+  setInterval(pollEvents, 4000);
+  setInterval(pollHealth, 10000);
+  setInterval(() => { if (isLive()) refreshData(); }, 60000);
 })();
 </script>
 </body></html>
