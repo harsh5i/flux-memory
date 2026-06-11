@@ -215,6 +215,7 @@ def test_chronicle_data_shape(store):
         ids.append(gid)
     d = chronicle_data(store)
     assert len(d["grains"]) == 5
+    assert d["totals"]["all_conduits"] >= d["totals"]["grain_conduits"]
     g = d["grains"][0]
     assert len(g) == len(d["grain_fields"])
     x, y = g[1], g[2]

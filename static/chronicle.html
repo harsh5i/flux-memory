@@ -63,6 +63,17 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
 .pin .nb:hover{background:rgba(80,120,200,0.14)}
 .pin .nb .w{float:right;font-size:9px;opacity:.6}
 .hint{position:absolute;bottom:10px;left:14px;font-size:9px;color:rgba(200,218,240,0.3);z-index:54;pointer-events:none}
+.syspanel{position:absolute;bottom:12px;right:14px;width:268px;background:rgba(4,9,22,0.92);border:1px solid rgba(80,120,200,0.2);border-radius:8px;font-size:10px;z-index:55;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
+.sys-head{padding:8px 12px;font-size:9px;letter-spacing:.16em;color:rgba(200,218,240,0.55);cursor:pointer;user-select:none;display:flex;gap:8px;align-items:center}
+.sys-head #sys-sum{margin-left:auto;letter-spacing:0}
+.sys-caret{opacity:.5}
+.syspanel.collapsed .sys-body{display:none}
+.sys-body{padding:2px 12px 11px;line-height:1.7;max-height:260px;overflow-y:auto}
+.sys-title{font-size:8px;letter-spacing:.16em;color:rgba(200,218,240,0.35);text-transform:uppercase;margin-bottom:3px}
+.sys-row{display:flex;justify-content:space-between;gap:8px}
+.sys-row .nm{color:#8fa8c8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sys-row .vl{flex:0 0 auto}
+.ok{color:#34d399}.warn{color:#f59e0b}.bad{color:#fb7185}
 </style>
 </head>
 <body>
@@ -95,7 +106,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
   <div class="legend">
     <span><span class="sw" style="background:#22d3ee"></span>user stated</span><br>
     <span><span class="sw" style="background:#a78bfa"></span>ai stated</span><br>
-    <span><span class="sw" style="background:#f59e0b"></span>ai inferred</span><br>
+    <span><span class="sw" style="background:#e879f9"></span>ai inferred</span><br>
     <span><span class="sw" style="background:#34d399"></span>external</span><br>
     <span><span class="sw" style="background:none;border:1px solid #fb7185"></span>orphan</span><br>
     <span><span class="ln" style="border-color:#facc15"></span>highway ≥.80</span><br>
@@ -104,6 +115,15 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
     <label><input type="checkbox" id="hw-only">highways only</label>
   </div>
   <div class="pin" id="pin"><span class="close" id="pin-close">×</span><div id="pin-body"></div></div>
+  <div class="syspanel" id="syspanel">
+    <div class="sys-head" id="sys-head">SYSTEM <span id="sys-sum">—</span><span class="sys-caret" id="sys-caret">▾</span></div>
+    <div class="sys-body" id="sys-body">
+      <div class="sys-title">Warnings</div>
+      <div id="sys-warnings">—</div>
+      <div class="sys-title" style="margin-top:8px">Caller compliance</div>
+      <div id="sys-callers">—</div>
+    </div>
+  </div>
   <div class="hint">drag pan · wheel zoom · hover grain · click = neighborhood · esc clears · space plays</div>
 </div>
 
@@ -129,7 +149,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
   document.addEventListener('click', () => nav.classList.remove('open'));
 })();
 
-const COLORS = {user_stated:"#22d3ee", ai_stated:"#a78bfa", ai_inferred:"#f59e0b", external_source:"#34d399"};
+const COLORS = {user_stated:"#22d3ee", ai_stated:"#a78bfa", ai_inferred:"#e879f9", external_source:"#34d399"};
 const wrap = document.getElementById('stage-wrap');
 const stage = document.getElementById('stage'), ctx = stage.getContext('2d');
 const hist = document.getElementById('histcanvas'), histctx = hist.getContext('2d');
@@ -142,6 +162,7 @@ let playing = false, daysPerSec = 4;
 let cam = {x: 0, y: 0, k: 1};
 let selected = -1, hovered = -1, hwOnly = false;
 let anims = [];                       // transient activity animations
+let fieldAlpha = 1.0;                 // eased dim while animations play
 let staticDirty = true;
 const staticLayer = document.createElement('canvas');
 const sctx = staticLayer.getContext('2d');
@@ -241,13 +262,19 @@ function frame(ts) {
   frame.last = ts;
 
   if (staticDirty) { renderStatic(); drawHistCursor(); updateHud(); staticDirty = false; }
+  // ease the field toward dim while activity animations play, so pulses pop
+  const dimTarget = anims.length ? 0.22 : 1.0;
+  fieldAlpha += (dimTarget - fieldAlpha) * 0.12;
   ctx.clearRect(0, 0, stage.width, stage.height);
+  ctx.globalAlpha = fieldAlpha;
   ctx.drawImage(staticLayer, 0, 0);
+  ctx.globalAlpha = 1;
 
   // highways: always animated (marching dashes) so the strongest paths read instantly
   const selSet = selected >= 0 ? neighborSet(selected) : null;
   ctx.setLineDash([7 * DPR, 5 * DPR]);
   ctx.lineDashOffset = -(ts / 28) % 600;
+  ctx.globalAlpha = fieldAlpha;
   for (const e of E) {
     if (e.w < 0.8 || e.t > cursor) continue;
     const a = G[e.a], b = G[e.b];
@@ -259,6 +286,7 @@ function frame(ts) {
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
   }
   ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
 
   // activity animations
   const now = performance.now();
@@ -474,9 +502,41 @@ async function pollHealth() {
     set('mp-retrieval', sig('retrieval_success_rate'), true);
     set('mp-fallback', sig('fallback_trigger_rate'), true);
     set('mp-feedback', sig('feedback_compliance_rate'), true);
-    set('mp-highways', sig('highway_count'));
+    renderSystem(h);
   } catch (e) {}
 }
+
+function renderSystem(h) {
+  const warns = h.active_warnings || [];
+  const wEl = document.getElementById('sys-warnings');
+  wEl.innerHTML = warns.length
+    ? warns.map(w => `<div class="sys-row"><span class="nm">${w.signal.replaceAll("_"," ")}</span>
+        <span class="vl ${w.severity === "CRITICAL" ? "bad" : "warn"}">${w.severity}</span></div>`).join("")
+    : `<div class="ok">none — system healthy</div>`;
+
+  const skewed = new Set((h.caller_provenance || []).filter(c => c.skewed).map(c => c.caller_id));
+  const callers = (h.caller_feedback || []).filter(c => (c.expected || 0) > 0);
+  const cEl = document.getElementById('sys-callers');
+  cEl.innerHTML = callers.length
+    ? callers.map(c => {
+        const pct = Math.round((c.rate || 0) * 100);
+        const cls = c.healthy ? "ok" : "bad";
+        const skew = skewed.has(c.caller_id) ? ' <span class="warn" title="provenance skew">⚠prov</span>' : "";
+        return `<div class="sys-row"><span class="nm">${c.display_name || c.caller_id}${skew}</span>
+          <span class="vl ${cls}">${pct}%</span></div>`;
+      }).join("")
+    : "—";
+
+  const status = h.status || "—";
+  const sum = document.getElementById('sys-sum');
+  sum.textContent = `${status.toUpperCase()} · ${warns.length} warn`;
+  sum.className = status === "healthy" ? "ok" : (status === "critical" ? "bad" : "warn");
+}
+document.getElementById('sys-head').addEventListener('click', () => {
+  const p = document.getElementById('syspanel');
+  p.classList.toggle('collapsed');
+  document.getElementById('sys-caret').textContent = p.classList.contains('collapsed') ? "▴" : "▾";
+});
 async function refreshData(first = false) {
   const d = await (await fetch('/api/chronicle')).json();
   const prevN = G.length;
@@ -497,7 +557,12 @@ async function refreshData(first = false) {
   T0 = G[0].t; T1 = Math.max(G[G.length - 1].t, Date.now());
   if (wasLive) cursor = T1;
   document.getElementById('mp-grains').textContent = G.length.toLocaleString();
-  document.getElementById('mp-conduits').textContent = E.length.toLocaleString() + "+";
+  const tot = d.totals || {};
+  document.getElementById('mp-conduits').textContent =
+    (tot.all_conduits ?? E.length).toLocaleString();
+  document.getElementById('mp-conduits').title =
+    `${(tot.grain_conduits ?? 0).toLocaleString()} grain-to-grain · rest are entry conduits · top ${E.length.toLocaleString()} drawn`;
+  if (tot.highways != null) document.getElementById('mp-highways').textContent = tot.highways.toLocaleString();
   buildHist(); drawHistBase(); staticDirty = true;
   if (!first && G.length > prevN && isLive()) {
     for (let i = prevN; i < G.length; i++) anims.push({kind: "pulse", x: G[i].x, y: G[i].y, color: "#22d3ee", start: performance.now(), dur: 1800});

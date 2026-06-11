@@ -306,9 +306,25 @@ def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
         if c["from_id"] in index_of and c["to_id"] in index_of
     ]
 
+    totals = store.conn.execute(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM conduits) AS all_conduits,
+          (SELECT COUNT(*) FROM conduits c
+             JOIN grains ga ON ga.id = c.from_id
+             JOIN grains gb ON gb.id = c.to_id) AS grain_conduits,
+          (SELECT COUNT(*) FROM conduits WHERE weight >= 0.80) AS highways
+        """
+    ).fetchone()
+
     return {
         "grains": grains,
         "conduits": conduits,
+        "totals": {
+            "all_conduits": totals["all_conduits"],
+            "grain_conduits": totals["grain_conduits"],
+            "highways": totals["highways"],
+        },
         "grain_fields": ["id", "x", "y", "created_at", "provenance",
                          "decay_class", "degree", "snippet"],
         "conduit_fields": ["from_idx", "to_idx", "weight", "created_at"],
