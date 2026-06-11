@@ -33,7 +33,6 @@ Subcommands:
               Print version and exit.
 
 Instance config lives at: ~/.flux/<name>/config.yaml
-Admin auth lives at:      ~/.flux/<name>/admin_auth.json
 PID file lives at:        ~/.flux/<name>/flux.pid
 """
 from __future__ import annotations
@@ -296,50 +295,6 @@ try:
 
         click.echo(f"\nConfig written to: {cfg_path}")
         click.echo(f"Database will be:  {db_path}")
-
-        # Admin password setup.
-        click.echo("\n--- Admin password setup ---")
-        click.echo("This password gates all destructive admin operations.")
-        while True:
-            pw = click.prompt("Admin password", hide_input=True)
-            pw2 = click.prompt("Confirm password", hide_input=True)
-            if pw != pw2:
-                click.echo("Passwords do not match. Try again.")
-                continue
-            if len(pw) < 8:
-                click.echo("Password must be at least 8 characters.")
-                continue
-            break
-
-        enable_totp = click.confirm("\nEnable two-factor authentication (TOTP)?", default=True)
-
-        from flux.admin_auth import AdminAuth
-        auth = AdminAuth(
-            idir,
-            lockout_minutes=15,
-            max_attempts=3,
-            session_hours=1,
-        )
-        totp_uri = auth.setup(pw, enable_totp=enable_totp)
-
-        if totp_uri:
-            click.echo("\n--- TOTP Setup ---")
-            shown = auth.show_qr()
-            if shown:
-                click.echo("\nScan the QR code above with your authenticator app.")
-            else:
-                click.echo("\nQR display unavailable. Use this manual TOTP URI:")
-            click.echo(f"{totp_uri}\n")
-            while True:
-                code = click.prompt("Enter the 6-digit code from your authenticator")
-                if auth.verify_totp_code(code):
-                    click.secho("TOTP verified.", fg="green")
-                    break
-                click.secho("Invalid TOTP code.", fg="red")
-                if not click.confirm("Try another code?", default=True):
-                    auth.disable_totp()
-                    click.secho("TOTP disabled for this instance.", fg="yellow")
-                    break
 
         snippets = _write_mcp_client_configs(name)
 
@@ -630,48 +585,24 @@ try:
     @cli.command("admin")
     @click.option("--name", default=_DEFAULT_NAME, show_default=True)
     def admin_menu(name: str) -> None:
-        """Interactive admin menu (password + TOTP gated)."""
+        """Interactive admin menu."""
+        import secrets as _secrets
         idir = _instance_dir(name)
-        from flux.admin_auth import AdminAuth
-        auth = AdminAuth(idir)
-
-        if not auth.is_configured():
+        if not _config_file(name).exists():
             click.echo(f"Instance '{name}' not initialized. Run: flux init --name {name}")
             sys.exit(1)
 
         click.echo(f"\n--- Flux Memory Admin: {name} ---")
-        pw = click.prompt("Password", hide_input=True)
-        totp_code = None
-        # Check if TOTP enabled (we try with None first; auth will tell us if needed).
-        try:
-            token = auth.authenticate(pw, totp_code)
-        except PermissionError as exc:
-            msg = str(exc)
-            if "TOTP" in msg:
-                totp_code = click.prompt("TOTP code")
-                try:
-                    token = auth.authenticate(pw, totp_code)
-                except PermissionError as exc2:
-                    click.echo(f"Authentication failed: {exc2}")
-                    sys.exit(1)
-            else:
-                click.echo(f"Authentication failed: {exc}")
-                sys.exit(1)
+        # Session-local confirmation token (§7.6): destructive operations still
+        # require this token to flow through explicitly, preventing accidental
+        # programmatic purges. Password/TOTP gating removed by owner decision
+        # (2026-06-11) — a forgotten secret locks out legitimate admin access
+        # on a single-user machine.
+        token = _secrets.token_hex(16)
 
-        click.echo("\nAuthenticated.\n")
-
-        db_path = _db_file(name)
         from flux.storage import FluxStore
-        from flux.admin import flux_export_grain, flux_purge, flux_restore
+        store = FluxStore(_db_file(name))
 
-        with FluxStore(db_path) as store:
-            _admin_menu_loop(store, auth, token, name)
-
-        auth.invalidate_session(token)
-
-    def _admin_menu_loop(store, auth, token: str, name: str) -> None:
-        """Interactive admin menu loop."""
-        import os as _os
         MENU = """
 Admin Menu:
   1) Search grains
@@ -680,12 +611,11 @@ Admin Menu:
   4) Export grain details
   5) View audit log
   6) Open dashboard
-  7) Change password
-  8) Exit
+  7) Exit
 """
         while True:
             click.echo(MENU)
-            choice = click.prompt("Choice", type=click.Choice(["1","2","3","4","5","6","7","8"]))
+            choice = click.prompt("Choice", type=click.Choice(["1","2","3","4","5","6","7"]))
 
             if choice == "1":
                 pattern = click.prompt("Search pattern")
@@ -739,16 +669,8 @@ Admin Menu:
                 import webbrowser
                 webbrowser.open(url)
 
-            elif choice == "7":
-                pw1 = click.prompt("New password", hide_input=True)
-                pw2 = click.prompt("Confirm", hide_input=True)
-                if pw1 != pw2:
-                    click.echo("Passwords do not match.")
-                else:
-                    auth.change_password(pw1)
-                    click.echo("Password changed.")
 
-            elif choice == "8":
+            elif choice == "7":
                 break
 
     # ---------------------------------------------------------------- internal runner

@@ -132,11 +132,6 @@ class Config:
     FEEDBACK_ENFORCEMENT_GRACE_SECONDS: float = 60.0
     FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS: float = 86_400.0
 
-    # --- Admin authentication (§1A.8) ---
-    ADMIN_LOCKOUT_MINUTES: int = 15
-    ADMIN_MAX_ATTEMPTS: int = 3
-    ADMIN_SESSION_HOURS: int = 1
-
     # --- Store hygiene ---
     # New grains with embedding cosine similarity >= this to an existing active
     # grain are treated as duplicates: the existing grain_id is returned and no

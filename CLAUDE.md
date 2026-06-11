@@ -9,7 +9,7 @@ Checkpoint log: keep local checkpoint files outside this repository.
 - Lazy decay only (effective_weight computed at read time from last_used)
 - MAX_EDGES_PER_GRAIN cap with weakest-edge eviction
 - Every grain has provenance: user_stated / ai_stated / ai_inferred / external_source
-- Admin channel gatekeeper protocol (§7.6): confirmation token, rate limiting, audit log, 24h purge undo window. Not exposed via MCP.
+- Admin channel gatekeeper protocol (§7.6): confirmation token, rate limiting, audit log, 24h purge undo window. Not exposed via MCP. (Password/TOTP gating removed by owner decision 2026-06-11 — confirmation token remains.)
 - Soft cluster membership with touch-weight accumulator and split/merge remapping (§13.2). NOT disjoint.
 - Multi-signal feedback with provenance multipliers (§7.1). NOT single boolean.
 - Health Monitor is first-class — build alongside the engine, not after.
