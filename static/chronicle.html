@@ -313,7 +313,7 @@ function glideCam(target) {
     cam = {x: target.x, y: target.y, k: target.k};
     if (changed) staticDirty = true;
   } else {
-    cam.x += dx * 0.10; cam.y += dy * 0.10; cam.k += dk * 0.10;
+    cam.x += dx * 0.16; cam.y += dy * 0.16; cam.k += dk * 0.16;
     staticDirty = true;
   }
   return close;
@@ -342,7 +342,7 @@ function updateCamFollow(nowMs) {
       return;
     }
     if (camFollow.idleSince == null) camFollow.idleSince = nowMs;
-    if (nowMs - camFollow.idleSince >= 6000) {
+    if (nowMs - camFollow.idleSince >= 1200) {
       camFollow.target = camFollow.home;
       camFollow.returning = true;
     } else camFollow.target = null;
