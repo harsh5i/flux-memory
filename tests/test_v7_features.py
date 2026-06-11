@@ -201,3 +201,24 @@ def test_vitals_history_shape(store):
     assert len(point) == 3  # [timestamp, value, healthy]
     assert "orphan_rate" in v["ranges"]
     assert v["window_hours"] == 24
+
+
+# ----------------------------------------------------------- chronicle
+
+def test_chronicle_data_shape(store):
+    from flux.visualization import chronicle_data
+    emb = MockEmbeddingBackend()
+    ids = []
+    for i in range(5):
+        gid, _ = flux_store_ex(f"Chronicle test grain number {i}.",
+                               store=store, llm=None, emb=emb)
+        ids.append(gid)
+    d = chronicle_data(store)
+    assert len(d["grains"]) == 5
+    g = d["grains"][0]
+    assert len(g) == len(d["grain_fields"])
+    x, y = g[1], g[2]
+    assert 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0
+    # conduits reference grain indices
+    for c in d["conduits"]:
+        assert 0 <= c[0] < 5 and 0 <= c[1] < 5

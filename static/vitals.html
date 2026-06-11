@@ -14,7 +14,7 @@ body{overflow-y:auto}
 .flux-nav{position:relative;font-size:13px;letter-spacing:.06em;color:#22d3ee;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none}
 .flux-nav-arrow{font-size:9px;opacity:.5}
 .flux-nav-menu{display:none;position:absolute;top:24px;left:-8px;min-width:230px;background:rgba(4,9,22,0.98);border:1px solid rgba(80,120,200,0.25);border-radius:7px;padding:5px 0;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
-.flux-nav:hover .flux-nav-menu{display:block}
+.flux-nav:hover .flux-nav-menu,.flux-nav.open .flux-nav-menu{display:block}
 .flux-nav-item{display:block;padding:7px 14px;font-size:11px;color:#8fa8c8;text-decoration:none;border-left:2px solid transparent}
 .flux-nav-item:hover{background:rgba(80,120,200,0.12);color:#c8daf0}
 .flux-nav-item.active{color:#22d3ee;border-left-color:#22d3ee}
@@ -58,7 +58,8 @@ body{overflow-y:auto}
       <a href="/" class="flux-nav-item">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
       <a href="/mycelium" class="flux-nav-item">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
       <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
-      <a href="/vitals" class="flux-nav-item active">Vitals<span class="flux-nav-item-sub">signal timelines + learning curve</span></a>
+      <a href="/chronicle" class="flux-nav-item">Chronicle<span class="flux-nav-item-sub">memory replay — watch it grow</span></a>
+      <a href="/vitals" class="flux-nav-item active">Vitals<span class="flux-nav-item-sub">health statistics + timelines</span></a>
     </div>
   </div>
   <div class="range-picker" id="range-picker">
@@ -230,6 +231,12 @@ function spark(sig, pts, range, warnings) {
 
   return svg.node();
 }
+
+(() => {
+  const nav = document.getElementById('flux-nav');
+  nav.addEventListener('click', e => { e.stopPropagation(); nav.classList.toggle('open'); });
+  document.addEventListener('click', () => nav.classList.remove('open'));
+})();
 
 document.getElementById('range-picker').addEventListener('click', ev => {
   const btn = ev.target.closest('.range-btn');

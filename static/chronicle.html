@@ -1,0 +1,325 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flux Memory — Chronicle</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:#020408;font-family:'IBM Plex Mono',monospace;color:#c8daf0}
+.shell{height:100%;display:flex;flex-direction:column}
+
+.topbar{display:flex;align-items:center;gap:18px;padding:12px 18px;border-bottom:1px solid rgba(80,120,200,0.15);flex:0 0 auto}
+.flux-nav{position:relative;font-size:13px;letter-spacing:.06em;color:#22d3ee;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;z-index:60}
+.flux-nav-arrow{font-size:9px;opacity:.5}
+.flux-nav-menu{display:none;position:absolute;top:24px;left:-8px;min-width:240px;background:rgba(4,9,22,0.98);border:1px solid rgba(80,120,200,0.25);border-radius:7px;padding:5px 0;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
+.flux-nav:hover .flux-nav-menu,.flux-nav.open .flux-nav-menu{display:block}
+.flux-nav-item{display:block;padding:7px 14px;font-size:11px;color:#8fa8c8;text-decoration:none;border-left:2px solid transparent}
+.flux-nav-item:hover{background:rgba(80,120,200,0.12);color:#c8daf0}
+.flux-nav-item.active{color:#22d3ee;border-left-color:#22d3ee}
+.flux-nav-item-sub{font-size:9px;opacity:.4;display:block;margin-top:1px}
+.cursor-date{font-size:13px;color:#e8f2ff;letter-spacing:.04em;min-width:130px}
+.counter{font-size:10px;color:rgba(200,218,240,0.45)}
+.legend{display:flex;gap:14px;margin-left:auto;font-size:9px;color:rgba(200,218,240,0.5);align-items:center}
+.legend .sw{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+
+.stage-wrap{flex:1 1 auto;position:relative;min-height:0}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+#hovercanvas{cursor:crosshair}
+
+.controls{flex:0 0 auto;padding:10px 18px 14px;border-top:1px solid rgba(80,120,200,0.15);display:flex;align-items:center;gap:14px}
+.play-btn{background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.45);color:#22d3ee;width:34px;height:30px;border-radius:5px;cursor:pointer;font-size:12px;font-family:inherit}
+.play-btn:hover{background:rgba(34,211,238,0.2)}
+.speed{display:flex;gap:2px}
+.speed button{background:none;border:1px solid rgba(80,120,200,0.25);color:rgba(200,218,240,0.5);font-size:9px;padding:3px 8px;cursor:pointer;font-family:inherit}
+.speed button.active{color:#22d3ee;border-color:rgba(34,211,238,0.5)}
+.timeline{flex:1;position:relative;height:46px;cursor:pointer}
+#histcanvas{position:absolute;inset:0;width:100%;height:100%}
+.tip{position:fixed;pointer-events:none;background:rgba(4,9,22,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:7px;padding:9px 12px;font-size:10px;color:#c8daf0;z-index:70;opacity:0;transition:opacity .08s;box-shadow:0 6px 24px rgba(0,0,0,0.7);max-width:300px;line-height:1.55}
+.tip.show{opacity:1}
+.tip .t-date{color:rgba(200,218,240,0.45);font-size:9px}
+.tip .t-meta{color:#22d3ee;font-size:9px;margin-top:3px}
+
+.pin{position:absolute;top:14px;right:14px;width:300px;background:rgba(4,9,22,0.96);border:1px solid rgba(34,211,238,0.3);border-radius:8px;padding:13px 15px;font-size:11px;line-height:1.6;z-index:55;display:none;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
+.pin.show{display:block}
+.pin .close{position:absolute;top:7px;right:10px;cursor:pointer;color:rgba(200,218,240,0.4);font-size:13px}
+.pin .p-meta{color:#22d3ee;font-size:9px;margin-top:7px;line-height:1.7}
+.hint{position:absolute;bottom:10px;left:14px;font-size:9px;color:rgba(200,218,240,0.3);z-index:55;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<div class="topbar">
+  <div class="flux-nav" id="flux-nav">
+    <span>flux/memory</span>
+    <span class="flux-nav-arrow">▾</span>
+    <div class="flux-nav-menu">
+      <a href="/" class="flux-nav-item">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
+      <a href="/mycelium" class="flux-nav-item">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
+      <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
+      <a href="/chronicle" class="flux-nav-item active">Chronicle<span class="flux-nav-item-sub">memory replay — watch it grow</span></a>
+      <a href="/vitals" class="flux-nav-item">Vitals<span class="flux-nav-item-sub">health statistics + timelines</span></a>
+    </div>
+  </div>
+  <span class="cursor-date" id="cursor-date">—</span>
+  <span class="counter" id="counter">loading…</span>
+  <div class="legend">
+    <span><span class="sw" style="background:#22d3ee"></span>user stated</span>
+    <span><span class="sw" style="background:#a78bfa"></span>ai stated</span>
+    <span><span class="sw" style="background:#f59e0b"></span>ai inferred</span>
+    <span><span class="sw" style="background:#34d399"></span>external</span>
+    <span><span class="sw" style="background:none;border:1px solid #fb7185"></span>orphan</span>
+  </div>
+</div>
+
+<div class="stage-wrap" id="stage-wrap">
+  <canvas id="maincanvas"></canvas>
+  <canvas id="hovercanvas"></canvas>
+  <div class="pin" id="pin"><span class="close" id="pin-close">×</span><div id="pin-body"></div></div>
+  <div class="hint">drag to pan · wheel to zoom · hover for grain · click to pin · space to play</div>
+</div>
+
+<div class="controls">
+  <button class="play-btn" id="play-btn" title="play / pause (space)">▶</button>
+  <div class="speed" id="speed">
+    <button data-d="14">2w/s</button>
+    <button class="active" data-d="4">4d/s</button>
+    <button data-d="1">1d/s</button>
+  </div>
+  <div class="timeline" id="timeline"><canvas id="histcanvas"></canvas></div>
+</div>
+
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+(() => {
+  const nav = document.getElementById('flux-nav');
+  nav.addEventListener('click', e => { e.stopPropagation(); nav.classList.toggle('open'); });
+  document.addEventListener('click', () => nav.classList.remove('open'));
+})();
+
+const COLORS = {user_stated:"#22d3ee", ai_stated:"#a78bfa", ai_inferred:"#f59e0b", external_source:"#34d399"};
+const wrap = document.getElementById('stage-wrap');
+const main = document.getElementById('maincanvas'), mctx = main.getContext('2d');
+const hover = document.getElementById('hovercanvas'), hctx = hover.getContext('2d');
+const hist = document.getElementById('histcanvas'), histctx = hist.getContext('2d');
+const tip = document.getElementById('tip');
+const DPR = window.devicePixelRatio || 1;
+
+let G = [], E = [], T0 = 0, T1 = 1;       // grains, edges, time range (ms)
+let cursor = 0;                            // current time (ms)
+let playing = false, daysPerSec = 4;
+let cam = {x: 0, y: 0, k: 1};              // pan/zoom
+let pinned = null, hovered = null;
+
+const parseT = s => new Date(s.replace(" ", "T").replace(/(\.\d+)?(Z|\+00:00)?$/, "Z")).getTime();
+
+function resize() {
+  for (const c of [main, hover]) {
+    c.width = wrap.clientWidth * DPR; c.height = wrap.clientHeight * DPR;
+  }
+  const tl = document.getElementById('timeline');
+  hist.width = tl.clientWidth * DPR; hist.height = tl.clientHeight * DPR;
+  drawHist(); draw();
+}
+window.addEventListener('resize', resize);
+
+// world (0..1) -> screen px
+function toScreen(x, y) {
+  const W = main.width, H = main.height, S = Math.min(W, H) * 0.92, ox = (W - S) / 2, oy = (H - S) / 2;
+  return [(x * S + ox) * cam.k + cam.x, (y * S + oy) * cam.k + cam.y];
+}
+
+function visibleCount() {
+  let lo = 0, hi = G.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; (G[m].t <= cursor) ? lo = m + 1 : hi = m; }
+  return lo;   // grains sorted by t
+}
+
+function draw() {
+  const W = main.width, H = main.height;
+  mctx.clearRect(0, 0, W, H);
+  const n = visibleCount();
+
+  // edges first (faint), only between visible grains
+  mctx.lineWidth = Math.max(0.4, 0.5 * cam.k) * DPR;
+  for (const e of E) {
+    if (e.t > cursor) continue;
+    const a = G[e.a], b = G[e.b];
+    if (a.t > cursor || b.t > cursor) continue;
+    const [x1, y1] = toScreen(a.x, a.y), [x2, y2] = toScreen(b.x, b.y);
+    mctx.strokeStyle = `rgba(80,140,220,${0.05 + e.w * 0.16})`;
+    mctx.beginPath(); mctx.moveTo(x1, y1); mctx.lineTo(x2, y2); mctx.stroke();
+  }
+
+  // grains
+  const recentCut = cursor - 36e5 * 24 * 2;   // last 2 days of replay-time glow
+  for (let i = 0; i < n; i++) {
+    const g = G[i];
+    const [sx, sy] = toScreen(g.x, g.y);
+    if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;
+    const r = (g.dc === "core" ? 3.2 : 1.9) * DPR * Math.sqrt(cam.k);
+    const col = COLORS[g.prov] || "#8fa8c8";
+    if (g.t > recentCut) {            // newborn glow
+      mctx.beginPath(); mctx.arc(sx, sy, r * 2.6, 0, 7);
+      mctx.fillStyle = col + "33"; mctx.fill();
+    }
+    mctx.beginPath(); mctx.arc(sx, sy, r, 0, 7);
+    mctx.fillStyle = col; mctx.globalAlpha = g.dc === "core" ? 1 : 0.78;
+    mctx.fill(); mctx.globalAlpha = 1;
+    if (g.deg === 0) {                // orphan ring
+      mctx.beginPath(); mctx.arc(sx, sy, r + 2.2 * DPR, 0, 7);
+      mctx.strokeStyle = "#fb7185"; mctx.lineWidth = 1 * DPR; mctx.stroke();
+    }
+  }
+
+  document.getElementById('cursor-date').textContent = new Date(cursor).toISOString().slice(0, 10);
+  document.getElementById('counter').textContent = `${n.toLocaleString()} / ${G.length.toLocaleString()} grains`;
+  drawHistCursor();
+}
+
+// ---- timeline histogram --------------------------------------------------
+let histBins = [];
+function buildHist() {
+  const days = Math.max(1, Math.round((T1 - T0) / 864e5));
+  histBins = new Array(days).fill(0);
+  for (const g of G) {
+    const b = Math.min(days - 1, Math.floor((g.t - T0) / 864e5));
+    histBins[b]++;
+  }
+}
+function drawHist() {
+  const W = hist.width, H = hist.height;
+  histctx.clearRect(0, 0, W, H);
+  if (!histBins.length) return;
+  const bw = W / histBins.length, mx = Math.max(...histBins) || 1;
+  for (let i = 0; i < histBins.length; i++) {
+    const h = Math.max(1, (histBins[i] / mx) * (H - 8 * DPR));
+    histctx.fillStyle = "rgba(34,211,238,0.35)";
+    histctx.fillRect(i * bw, H - h, Math.max(1, bw - 1), h);
+  }
+}
+function drawHistCursor() {
+  drawHist();
+  const W = hist.width, H = hist.height;
+  const px = ((cursor - T0) / (T1 - T0)) * W;
+  histctx.fillStyle = "rgba(34,211,238,0.12)";
+  histctx.fillRect(0, 0, px, H);
+  histctx.strokeStyle = "#22d3ee"; histctx.lineWidth = 1.4 * DPR;
+  histctx.beginPath(); histctx.moveTo(px, 0); histctx.lineTo(px, H); histctx.stroke();
+}
+
+// ---- playback ------------------------------------------------------------
+let lastFrame = 0;
+function tick(ts) {
+  if (playing) {
+    const dt = lastFrame ? (ts - lastFrame) / 1000 : 0;
+    cursor = Math.min(T1, cursor + dt * daysPerSec * 864e5);
+    if (cursor >= T1) setPlaying(false);
+    draw();
+  }
+  lastFrame = ts;
+  requestAnimationFrame(tick);
+}
+function setPlaying(p) {
+  playing = p;
+  document.getElementById('play-btn').textContent = p ? "❚❚" : "▶";
+  if (p && cursor >= T1) cursor = T0;     // replay from start
+}
+document.getElementById('play-btn').addEventListener('click', () => setPlaying(!playing));
+document.addEventListener('keydown', e => {
+  if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+});
+document.getElementById('speed').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('.speed button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); daysPerSec = +b.dataset.d;
+});
+
+// scrub
+const tl = document.getElementById('timeline');
+let scrubbing = false;
+const scrubTo = ev => {
+  const r = tl.getBoundingClientRect();
+  cursor = T0 + Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * (T1 - T0);
+  draw();
+};
+tl.addEventListener('mousedown', ev => { scrubbing = true; scrubTo(ev); });
+window.addEventListener('mousemove', ev => { if (scrubbing) scrubTo(ev); });
+window.addEventListener('mouseup', () => scrubbing = false);
+
+// ---- pan / zoom ----------------------------------------------------------
+let dragging = false, dragFrom = null;
+hover.addEventListener('mousedown', e => { dragging = true; dragFrom = [e.clientX, e.clientY]; });
+window.addEventListener('mouseup', () => dragging = false);
+hover.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f = e.deltaY < 0 ? 1.13 : 1 / 1.13;
+  const mx = e.offsetX * DPR, my = e.offsetY * DPR;
+  cam.x = mx - (mx - cam.x) * f; cam.y = my - (my - cam.y) * f;
+  cam.k = Math.max(0.4, Math.min(40, cam.k * f));
+  draw();
+}, {passive: false});
+
+// ---- hover / pin ----------------------------------------------------------
+function nearest(mx, my) {
+  const n = visibleCount();
+  let best = null, bd = 14 * DPR;
+  for (let i = 0; i < n; i++) {
+    const [sx, sy] = toScreen(G[i].x, G[i].y);
+    const d = Math.hypot(sx - mx, sy - my);
+    if (d < bd) { bd = d; best = G[i]; }
+  }
+  return best;
+}
+hover.addEventListener('mousemove', e => {
+  if (dragging && dragFrom) {
+    cam.x += (e.clientX - dragFrom[0]) * DPR; cam.y += (e.clientY - dragFrom[1]) * DPR;
+    dragFrom = [e.clientX, e.clientY];
+    draw(); return;
+  }
+  const g = nearest(e.offsetX * DPR, e.offsetY * DPR);
+  hctx.clearRect(0, 0, hover.width, hover.height);
+  if (g) {
+    const [sx, sy] = toScreen(g.x, g.y);
+    hctx.beginPath(); hctx.arc(sx, sy, 7 * DPR, 0, 7);
+    hctx.strokeStyle = "#e8f2ff"; hctx.lineWidth = 1.2 * DPR; hctx.stroke();
+    tip.innerHTML = `<div>${g.snip}</div>
+      <div class="t-date">${new Date(g.t).toLocaleString()}</div>
+      <div class="t-meta">${g.prov.replaceAll("_"," ")} · ${g.dc} · ${g.deg} conduit${g.deg === 1 ? "" : "s"}${g.deg === 0 ? " · <span style='color:#fb7185'>orphan</span>" : ""}</div>`;
+    tip.style.left = (e.clientX + 16) + "px"; tip.style.top = (e.clientY - 8) + "px";
+    tip.classList.add("show");
+  } else tip.classList.remove("show");
+  hovered = g;
+});
+hover.addEventListener('mouseleave', () => { tip.classList.remove("show"); hctx.clearRect(0, 0, hover.width, hover.height); });
+hover.addEventListener('click', () => {
+  if (dragging) return;
+  if (!hovered) { document.getElementById('pin').classList.remove('show'); return; }
+  pinned = hovered;
+  document.getElementById('pin-body').innerHTML = `<div>${pinned.snip}</div>
+    <div class="p-meta">created ${new Date(pinned.t).toLocaleString()}<br>
+    ${pinned.prov.replaceAll("_"," ")} · ${pinned.dc} · ${pinned.deg} conduits<br>
+    id ${pinned.id.slice(0, 12)}…</div>`;
+  document.getElementById('pin').classList.add('show');
+});
+document.getElementById('pin-close').addEventListener('click', () => document.getElementById('pin').classList.remove('show'));
+
+// ---- load -----------------------------------------------------------------
+(async () => {
+  const d = await (await fetch('/api/chronicle')).json();
+  G = d.grains.map(g => ({id: g[0], x: g[1], y: g[2], t: parseT(g[3]), prov: g[4], dc: g[5], deg: g[6], snip: g[7]}));
+  G.sort((a, b) => a.t - b.t);
+  E = d.conduits.map(c => ({a: c[0], b: c[1], w: c[2], t: parseT(c[3])}));
+  // re-map edge indices after sort
+  const order = new Map(d.grains.map((g, i) => [g[0], i]));
+  const newIdx = new Map(G.map((g, i) => [g.id, i]));
+  E.forEach(e => { e.a = newIdx.get(d.grains[e.a][0]); e.b = newIdx.get(d.grains[e.b][0]); });
+  T0 = G[0].t; T1 = G[G.length - 1].t + 864e5 * 0.5;
+  cursor = T1;
+  buildHist(); resize();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body></html>

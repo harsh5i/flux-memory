@@ -498,7 +498,8 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
         <a href="/" class="flux-nav-item active">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
         <a href="/mycelium" class="flux-nav-item">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
         <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
-        <a href="/vitals" class="flux-nav-item">Vitals<span class="flux-nav-item-sub">signal timelines + learning curve</span></a>
+        <a href="/chronicle" class="flux-nav-item">Chronicle<span class="flux-nav-item-sub">memory replay — watch it grow</span></a>
+        <a href="/vitals" class="flux-nav-item">Vitals<span class="flux-nav-item-sub">health statistics + timelines</span></a>
       </div>
     </div>
     <div id="status-badge" class="badge-warning">
@@ -2167,6 +2168,7 @@ def run_dashboard(
         "/api/graph": 8.0,
         "/api/clusters": 8.0,
         "/api/vitals": 30.0,
+        "/api/chronicle": 300.0,
     }
 
     def _get_inflight_lock(key: str) -> _threading.Lock:
@@ -2211,6 +2213,8 @@ def run_dashboard(
                 self._send(200, "text/html; charset=utf-8", _load_view("globe.html"))
             elif path == "/vitals":
                 self._send(200, "text/html; charset=utf-8", _load_view("vitals.html"))
+            elif path == "/chronicle":
+                self._send(200, "text/html; charset=utf-8", _load_view("chronicle.html"))
             elif path == "/mobile-preview":
                 self._send(200, "text/html; charset=utf-8", _MOBILE_PREVIEW_HTML.encode())
             elif path == "/api/health":
@@ -2234,6 +2238,12 @@ def run_dashboard(
                 with store.lock():
                     data = _trace_details(store, trace_id=trace_id)
                 self._send(200, "application/json", json.dumps(data, default=str).encode())
+            elif path == "/api/chronicle":
+                def _compute():
+                    from .visualization import chronicle_data
+                    with store.lock():
+                        return chronicle_data(store)
+                self._send(200, "application/json", _cached_json("/api/chronicle", _compute))
             elif path == "/api/vitals":
                 query = parse_qs(parsed.query)
                 try:

@@ -229,3 +229,87 @@ def _add_graphml_keys(root: ET.Element) -> None:
 
 def _dot_edge_style(edge_type: str) -> str:
     return {"shortcut": "dotted", "bootstrap": "dashed"}.get(edge_type, "solid")
+
+
+# ------------------------------------------------------------------ chronicle
+
+def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
+    """Data for the Chronicle replay view: every active grain positioned by a
+    2D PCA projection of its embedding (so spatial closeness = semantic
+    closeness), with creation timestamps for time-scrubbed playback, plus
+    grain-to-grain conduits ordered by weight.
+
+    Returns compact arrays to keep the payload small:
+      grains:   [id, x, y, created_at, provenance, decay_class, degree, snippet]
+      conduits: [from_idx, to_idx, weight, created_at]  (indices into grains)
+    """
+    import numpy as np
+    from .embedding import load_all_embeddings
+
+    grain_ids, matrix = load_all_embeddings(store)
+    coords: dict[str, tuple[float, float]] = {}
+    if len(grain_ids) >= 3 and matrix.size:
+        m = matrix.astype(np.float64)
+        m -= m.mean(axis=0)
+        # PCA via covariance eigendecomposition (384x384 — cheap).
+        cov = (m.T @ m) / max(len(grain_ids) - 1, 1)
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        pc = eigvecs[:, np.argsort(eigvals)[::-1][:2]]
+        xy = m @ pc
+        # Normalise to [0, 1] with a small margin.
+        lo, hi = xy.min(axis=0), xy.max(axis=0)
+        span = np.where((hi - lo) == 0, 1.0, hi - lo)
+        xy = (xy - lo) / span
+        for gid, (px, py) in zip(grain_ids, xy):
+            coords[gid] = (round(float(px), 4), round(float(py), 4))
+
+    rows = store.conn.execute(
+        """
+        SELECT id, content, created_at, provenance, decay_class
+        FROM grains WHERE status = 'active' ORDER BY created_at
+        """
+    ).fetchall()
+
+    degree: dict[str, int] = {}
+    for r in store.conn.execute(
+        "SELECT from_id, to_id FROM conduits"
+    ).fetchall():
+        degree[r["from_id"]] = degree.get(r["from_id"], 0) + 1
+        degree[r["to_id"]] = degree.get(r["to_id"], 0) + 1
+
+    grains = []
+    index_of: dict[str, int] = {}
+    for r in rows:
+        if r["id"] not in coords:
+            continue  # no embedding (rare post-backfill); skip rather than fake a position
+        x, y = coords[r["id"]]
+        index_of[r["id"]] = len(grains)
+        grains.append([
+            r["id"], x, y, r["created_at"], r["provenance"],
+            r["decay_class"], degree.get(r["id"], 0),
+            (r["content"] or "")[:110],
+        ])
+
+    conduit_rows = store.conn.execute(
+        """
+        SELECT c.from_id, c.to_id, c.weight, c.created_at FROM conduits c
+        JOIN grains ga ON ga.id = c.from_id
+        JOIN grains gb ON gb.id = c.to_id
+        ORDER BY c.weight DESC LIMIT ?
+        """,
+        (max_edges,),
+    ).fetchall()
+    conduits = [
+        [index_of[c["from_id"]], index_of[c["to_id"]],
+         round(c["weight"], 3), c["created_at"]]
+        for c in conduit_rows
+        if c["from_id"] in index_of and c["to_id"] in index_of
+    ]
+
+    return {
+        "grains": grains,
+        "conduits": conduits,
+        "grain_fields": ["id", "x", "y", "created_at", "provenance",
+                         "decay_class", "degree", "snippet"],
+        "conduit_fields": ["from_idx", "to_idx", "weight", "created_at"],
+    }
