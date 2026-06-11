@@ -1135,8 +1135,10 @@ function convexHull(pts) {
     es.onmessage = msg => {
       try {
         const ev = JSON.parse(msg.data);
-        if (ev.timestamp <= lastEventTs) return;
-        lastEventTs = ev.timestamp;
+        // SSE delivers each event once per connection — do NOT gate on
+        // timestamp (health ticks every 10s would otherwise advance the
+        // clock past real activity events and suppress their animation).
+        if (ev.timestamp > lastEventTs) lastEventTs = ev.timestamp;
         recordRetrieval(ev);
         if (!isLive()) return;
         spawnFor(ev);
