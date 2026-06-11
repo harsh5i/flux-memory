@@ -39,17 +39,24 @@ try:
     from fastapi import FastAPI, HTTPException, Request
     from pydantic import BaseModel
 
-    class StoreRequest(BaseModel):
+    class CallerMixin(BaseModel):
+        # Caller identity may arrive in the body instead of headers —
+        # several integrations (e.g. the Mirror daemon) send it this way.
+        caller_id: str | None = None
+        client: str | None = None
+        role: str | None = None
+
+    class StoreRequest(CallerMixin):
         content: str
         provenance: str = "ai_stated"
 
-    class StoreBatchRequest(BaseModel):
+    class StoreBatchRequest(CallerMixin):
         items: List[dict]
 
-    class RetrieveRequest(BaseModel):
+    class RetrieveRequest(CallerMixin):
         query: str
 
-    class FeedbackRequest(BaseModel):
+    class FeedbackRequest(CallerMixin):
         trace_id: str
         grain_id: str
         useful: bool
@@ -88,12 +95,14 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     # Helper
     # ------------------------------------------------------------------
 
-    def _caller(request: Request) -> str:
-        return compose_caller_id(
-            request.headers.get(_CALLER_CLIENT_HEADER),
-            request.headers.get(_CALLER_ROLE_HEADER),
-            fallback=request.headers.get(_CALLER_HEADER, _DEFAULT_CALLER),
-        )
+    def _caller(request: Request, body=None) -> str:
+        # Precedence: headers > body fields > anonymous.
+        client = request.headers.get(_CALLER_CLIENT_HEADER) or getattr(body, "client", None)
+        role = request.headers.get(_CALLER_ROLE_HEADER) or getattr(body, "role", None)
+        fallback = (request.headers.get(_CALLER_HEADER)
+                    or getattr(body, "caller_id", None)
+                    or _DEFAULT_CALLER)
+        return compose_caller_id(client, role, fallback=fallback)
 
     # ------------------------------------------------------------------
     # Endpoints
@@ -117,7 +126,7 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
 
     @app.post("/store")
     def store(body: StoreRequest, request: Request):
-        caller_id = _caller(request)
+        caller_id = _caller(request, body)
         try:
             grain_id, status = service.store_ex(body.content, body.provenance, caller_id=caller_id)
             return {"grain_id": grain_id, "status": status}
@@ -133,7 +142,7 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
 
     @app.post("/store/batch")
     def store_batch(body: StoreBatchRequest, request: Request):
-        caller_id = _caller(request)
+        caller_id = _caller(request, body)
         try:
             ids = service.store_batch(body.items, caller_id=caller_id)
             return {"grain_ids": ids, "count": len(ids)}
@@ -146,7 +155,7 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
 
     @app.post("/retrieve")
     def retrieve(body: RetrieveRequest, request: Request):
-        caller_id = _caller(request)
+        caller_id = _caller(request, body)
         try:
             result = service.retrieve(body.query, caller_id=caller_id)
             return {
@@ -164,7 +173,7 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
 
     @app.post("/feedback")
     def feedback(body: FeedbackRequest, request: Request):
-        caller_id = _caller(request)
+        caller_id = _caller(request, body)
         result = service.feedback_sync(body.trace_id, body.grain_id, body.useful,
                                        caller_id=caller_id, strength=body.strength)
         return {
@@ -177,7 +186,7 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
 
     @app.post("/feedback/batch")
     def feedback_batch(body: FeedbackBatchRequest, request: Request):
-        caller_id = _caller(request)
+        caller_id = _caller(request, body)
         items = [
             {"trace_id": item.trace_id, "grain_id": item.grain_id,
              "useful": item.useful, "strength": item.strength}

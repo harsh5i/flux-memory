@@ -240,3 +240,29 @@ class TestCallerIdPropagation:
             headers={"X-Caller-Id": "bob"},
         )
         assert resp.status_code == 200
+
+
+class TestBodyCallerIdentity:
+    def test_store_attributes_body_caller(self, client, store):
+        resp = client.post("/store", json={
+            "content": "Body caller attribution test grain.",
+            "client": "mirror", "role": "system",
+        })
+        assert resp.status_code == 200
+        row = store.conn.execute(
+            "SELECT json_extract(data, '$.caller_id') FROM events "
+            "WHERE event='grain_stored' ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+        assert row[0] == "mirror:system"
+
+    def test_header_wins_over_body(self, client, store):
+        resp = client.post("/store", json={
+            "content": "Header precedence test grain.",
+            "client": "mirror", "role": "system",
+        }, headers={"X-Flux-Client": "codex", "X-Flux-Role": "chat"})
+        assert resp.status_code == 200
+        row = store.conn.execute(
+            "SELECT json_extract(data, '$.caller_id') FROM events "
+            "WHERE event='grain_stored' ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+        assert row[0] == "codex:chat"
