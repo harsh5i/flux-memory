@@ -135,6 +135,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
     <label><input type="checkbox" id="heat-toggle" checked><span class="sw" style="background:#ff7828"></span>heat = retrieved recently</label>
     <label><input type="checkbox" id="hw-only">highways only</label>
     <label><input type="checkbox" id="cl-toggle" checked>cluster hulls</label>
+    <label><input type="checkbox" id="cam-follow">auto-follow camera</label>
   </div>
   <div class="pin" id="pin"><span class="close" id="pin-close">×</span><div id="pin-body"></div></div>
   <div class="syspanel" id="syspanel">
@@ -176,12 +177,14 @@ const wrap = document.getElementById('stage-wrap');
 const stage = document.getElementById('stage'), ctx = stage.getContext('2d');
 const hist = document.getElementById('histcanvas'), histctx = hist.getContext('2d');
 const tip = document.getElementById('tip');
+const camFollowToggle = document.getElementById('cam-follow');
 const DPR = window.devicePixelRatio || 1;
 
 let G = [], E = [], byId = new Map(), adj = new Map();
 let T0 = 0, T1 = 1, cursor = 0;
 let playing = false, daysPerSec = 4;
 let cam = {x: 0, y: 0, k: 1};
+let camFollow = {home: null, target: null, idleSince: null, muted: false, returning: false};
 let selected = -1, hovered = -1, hwOnly = false, showHeat = true;
 let anims = [];                       // transient activity animations
 let activeGrains = new Map();         // idx -> {until, color}  (event-activated)
@@ -270,6 +273,84 @@ window.addEventListener('resize', resize);
 function toScreen(x, y) {
   const W = stage.width, H = stage.height, S = Math.min(W, H) * 0.92, ox = (W - S) / 2, oy = (H - S) / 2;
   return [(x * S + ox) * cam.k + cam.x, (y * S + oy) * cam.k + cam.y];
+}
+
+function centeredCam(x, y, k) {
+  const W = stage.width, H = stage.height, S = Math.min(W, H) * 0.92, ox = (W - S) / 2, oy = (H - S) / 2;
+  return {x: W / 2 - (x * S + ox) * k, y: H / 2 - (y * S + oy) * k, k};
+}
+
+function resetCamFollow() {
+  camFollow = {home: null, target: null, idleSince: null, muted: false, returning: false};
+}
+
+function noteCamFollowActivity(wasEmpty) {
+  if (!camFollowToggle.checked) return;
+  if (wasEmpty) camFollow.muted = false;
+  if (camFollow.muted) return;
+  if (!camFollow.home) camFollow.home = {x: cam.x, y: cam.y, k: cam.k};
+  camFollow.idleSince = null;
+  camFollow.returning = false;
+}
+
+function lightActiveGrain(i, color, ms, follow = false, now = performance.now()) {
+  if (i < 0) return;
+  const wasEmpty = activeGrains.size === 0;
+  activeGrains.set(i, {until: now + ms, color});
+  if (follow) noteCamFollowActivity(wasEmpty);
+}
+
+function cancelCamFollow() {
+  if (!camFollowToggle.checked || (!camFollow.home && !camFollow.target)) return;
+  camFollow = {home: null, target: null, idleSince: null, muted: activeGrains.size > 0, returning: false};
+}
+
+function glideCam(target) {
+  const dx = target.x - cam.x, dy = target.y - cam.y, dk = target.k - cam.k;
+  const close = Math.abs(dx) < 0.08 * DPR && Math.abs(dy) < 0.08 * DPR && Math.abs(dk) < 0.001;
+  if (close) {
+    const changed = cam.x !== target.x || cam.y !== target.y || cam.k !== target.k;
+    cam = {x: target.x, y: target.y, k: target.k};
+    if (changed) staticDirty = true;
+  } else {
+    cam.x += dx * 0.10; cam.y += dy * 0.10; cam.k += dk * 0.10;
+    staticDirty = true;
+  }
+  return close;
+}
+
+function updateCamFollow(nowMs) {
+  if (!camFollowToggle.checked) { resetCamFollow(); return; }
+
+  if (activeGrains.size) {
+    if (camFollow.home && !camFollow.muted) {
+      let x = 0, y = 0, n = 0;
+      for (const i of activeGrains.keys()) {
+        const g = G[i];
+        if (!g) continue;
+        x += g.x; y += g.y; n++;
+      }
+      if (n) camFollow.target = centeredCam(x / n, y / n, Math.max(cam.k, 2.2));
+      camFollow.idleSince = null;
+      camFollow.returning = false;
+    }
+  } else {
+    camFollow.muted = false;
+    if (!camFollow.home) {
+      camFollow.target = null;
+      camFollow.idleSince = null;
+      return;
+    }
+    if (camFollow.idleSince == null) camFollow.idleSince = nowMs;
+    if (nowMs - camFollow.idleSince >= 6000) {
+      camFollow.target = camFollow.home;
+      camFollow.returning = true;
+    } else camFollow.target = null;
+  }
+
+  if (!camFollow.target || camFollow.muted) return;
+  const done = glideCam(camFollow.target);
+  if (done && camFollow.returning) resetCamFollow();
 }
 
 function visibleCount() {
@@ -373,12 +454,14 @@ function frame(ts) {
   }
   frame.last = ts;
 
-  if (staticDirty) { renderStatic(); drawHistCursor(); updateHud(); staticDirty = false; }
-  // ease the field toward dim while activity plays, so highlights pop
   const nowMs = performance.now();
   activeEdges = activeEdges.filter(e => e.until > nowMs);
   for (const [k, v] of activeGrains) if (v.until <= nowMs) activeGrains.delete(k);
   if (search && search.until <= nowMs) search = null;
+  updateCamFollow(nowMs);
+
+  if (staticDirty) { renderStatic(); drawHistCursor(); updateHud(); staticDirty = false; }
+  // ease the field toward dim while activity plays, so highlights pop
   const dimTarget = (anims.length || activeGrains.size || activeEdges.length || search) ? 0.20 : 1.0;
   fieldAlpha += (dimTarget - fieldAlpha) * 0.12;
   ctx.clearRect(0, 0, stage.width, stage.height);
@@ -567,6 +650,7 @@ document.getElementById('speed').addEventListener('click', e => {
 });
 document.getElementById('hw-only').addEventListener('change', e => { hwOnly = e.target.checked; staticDirty = true; });
 document.getElementById('heat-toggle').addEventListener('change', e => { showHeat = e.target.checked; staticDirty = true; });
+camFollowToggle.addEventListener('change', e => { if (!e.target.checked) resetCamFollow(); });
 
 const tl = document.getElementById('timeline');
 let scrubbing = false;
@@ -585,6 +669,7 @@ stage.addEventListener('mousedown', e => { dragging = true; moved = 0; dragFrom 
 window.addEventListener('mouseup', () => dragging = false);
 stage.addEventListener('wheel', e => {
   e.preventDefault();
+  cancelCamFollow();
   const f = e.deltaY < 0 ? 1.13 : 1 / 1.13;
   const mx = e.offsetX * DPR, my = e.offsetY * DPR;
   cam.x = mx - (mx - cam.x) * f; cam.y = my - (my - cam.y) * f;
@@ -606,6 +691,7 @@ stage.addEventListener('mousemove', e => {
   if (dragging && dragFrom) {
     const dx = e.clientX - dragFrom[0], dy = e.clientY - dragFrom[1];
     moved += Math.abs(dx) + Math.abs(dy);
+    cancelCamFollow();
     cam.x += dx * DPR; cam.y += dy * DPR;
     dragFrom = [e.clientX, e.clientY];
     staticDirty = true; return;
@@ -660,8 +746,9 @@ async function runSearch() {
   const wsum = matches.reduce((a, m) => a + m.score, 0) || 1;
   const cx = matches.reduce((a, m) => a + G[m.i].x * m.score, 0) / wsum;
   const cy = matches.reduce((a, m) => a + G[m.i].y * m.score, 0) / wsum;
-  search = {cx, cy, matches, until: performance.now() + 14000, q};
-  for (const m of matches) activeGrains.set(m.i, {until: performance.now() + 14000, color: "#e8f2ff"});
+  const now = performance.now();
+  search = {cx, cy, matches, until: now + 14000, q};
+  for (const m of matches) lightActiveGrain(m.i, "#e8f2ff", 14000, false, now);
   staticDirty = true;
   document.getElementById('pin-body').innerHTML =
     `<div style="color:#22d3ee">⌕ ${q}</div>
@@ -791,9 +878,9 @@ async function walkTrace(traceId) {
       setTimeout(() => {
         const a = byId.get(from.id), b = byId.get(to.id);
         if (a == null || b == null) return;
-        const until = performance.now() + 6000;
+        const now = performance.now(), until = now + 6000;
         activeEdges.push({a, b, until, color: "#fde047"});
-        activeGrains.set(b, {until, color: "#e8f2ff"});
+        lightActiveGrain(b, "#e8f2ff", 6000, false, now);
       }, delay);
     }
   } catch (err) {
@@ -811,7 +898,7 @@ function spawnFor(ev) {
   const at = id => byId.has(id) ? G[byId.get(id)] : null;
   const pulse = (g, color, dur = 1600) => g && anims.push({kind: "pulse", x: g.x, y: g.y, color, start: now, dur});
   const edge = (a, b, color, dur = 1300) => { if (a && b) anims.push({kind: "edge", x1: a.x, y1: a.y, x2: b.x, y2: b.y, color, start: now, dur}); };
-  const lightGrain = (i, color, ms) => { if (i >= 0) activeGrains.set(i, {until: now + ms, color}); };
+  const lightGrain = (i, color, ms) => lightActiveGrain(i, color, ms, true, now);
   const lightEdge = (i, j, color, ms) => { if (i >= 0 && j >= 0) activeEdges.push({a: i, b: j, until: now + ms, color}); };
 
   if (ev.event === "grain_stored") {
