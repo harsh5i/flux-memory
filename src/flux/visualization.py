@@ -132,6 +132,71 @@ def cluster_view(store: FluxStore) -> dict:
     return {"clusters": clusters}
 
 
+def trace_walk(store: FluxStore, trace_id: str) -> dict:
+    """Return a replayable retrieval trace with grain/entry labels resolved."""
+    row = store.conn.execute(
+        "SELECT id, query_text, created_at, trace_data FROM traces WHERE id = ?",
+        (trace_id,),
+    ).fetchone()
+    if row is None:
+        return {"error": "not found"}
+
+    try:
+        raw_steps = json.loads(row["trace_data"] or "[]")
+    except json.JSONDecodeError:
+        raw_steps = []
+    if not isinstance(raw_steps, list):
+        raw_steps = []
+
+    resolved: dict[str, dict] = {}
+
+    def resolve(node_id: object) -> dict:
+        nid = "" if node_id is None else str(node_id)
+        if nid in resolved:
+            return resolved[nid]
+
+        grain = store.conn.execute(
+            "SELECT content FROM grains WHERE id = ?", (nid,),
+        ).fetchone()
+        if grain is not None:
+            node = {"id": nid, "kind": "grain", "label": (grain["content"] or "")[:90]}
+        else:
+            entry = store.conn.execute(
+                "SELECT feature FROM entries WHERE id = ?", (nid,),
+            ).fetchone()
+            if entry is not None:
+                node = {"id": nid, "kind": "entry", "label": entry["feature"]}
+            else:
+                node = {"id": nid, "kind": "unknown", "label": nid[:12]}
+        resolved[nid] = node
+        return node
+
+    def hop_key(step: dict) -> tuple[int, str]:
+        try:
+            hop = int(step.get("hop", 0))
+        except (TypeError, ValueError):
+            hop = 0
+        return hop, str(step.get("conduit_id", ""))
+
+    steps = []
+    for step in sorted((s for s in raw_steps if isinstance(s, dict)), key=hop_key):
+        steps.append({
+            "hop": step.get("hop"),
+            "signal": step.get("signal"),
+            "from": resolve(step.get("from_id")),
+            "to": resolve(step.get("to_id")),
+        })
+
+    return {
+        "trace_id": row["id"],
+        "query": row["query_text"],
+        "created_at": row["created_at"],
+        "steps": steps,
+    }
+
+
+# ----------------------------------------------------------------- internals
+
 def grain_dossier(store: FluxStore, grain_id: str) -> dict:
     """Return detailed Chronicle inspector data for one grain."""
     row = store.conn.execute(

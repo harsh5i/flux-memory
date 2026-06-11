@@ -2160,7 +2160,7 @@ def run_dashboard(
     import time as _time
     from . import health as _health
     from .health import flux_health
-    from .visualization import cluster_view, export_json, grain_dossier
+    from .visualization import cluster_view, export_json, trace_walk, grain_dossier
 
     # ---- SSE: every log_event in this process is pushed to subscribers ----
     _sse_clients: set = set()
@@ -2283,6 +2283,12 @@ def run_dashboard(
                     with store.lock():
                         data = grain_dossier(store, grain_id)
                     self._send(200, "application/json", json.dumps(data, default=str).encode())
+            elif path == "/api/trace_walk":
+                query = parse_qs(parsed.query)
+                trace_id = query.get("trace_id", [""])[0]
+                with store.lock():
+                    data = trace_walk(store, trace_id)
+                self._send(200, "application/json", json.dumps(data, default=str).encode())
             elif path == "/api/vitals":
                 query = parse_qs(parsed.query)
                 try:

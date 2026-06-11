@@ -32,7 +32,8 @@ html,body{height:100%;overflow:hidden;background:#000;font-family:'IBM Plex Mono
 .live-dot{width:7px;height:7px;border-radius:50%;background:#34d399;animation:lp 1.6s infinite}
 .live-badge.replay .live-dot{background:#f59e0b;animation:none}
 @keyframes lp{0%,100%{opacity:1}50%{opacity:.25}}
-.ticker{font-size:9px;color:rgba(200,218,240,0.45);max-width:330px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ticker{font-size:9px;color:rgba(200,218,240,0.45);max-width:330px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.ticker:hover{color:rgba(200,218,240,0.75)}
 
 .stage-wrap{flex:1 1 auto;position:relative;min-height:0;background:#000}
 canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
@@ -185,6 +186,7 @@ let selected = -1, hovered = -1, hwOnly = false, showHeat = true;
 let anims = [];                       // transient activity animations
 let activeGrains = new Map();         // idx -> {until, color}  (event-activated)
 let activeEdges = [];                 // {a, b, until, color}   (event-activated)
+let recentRetrievals = [];            // last 8 retrieval traces seen in the feed
 let twinkles = [];                    // ambient starfield breathing
 let clusters = [];                    // [{label, hull, cx, cy}]
 let showClusters = true;
@@ -706,6 +708,102 @@ function drawSearch(nowMs) {
 
 // ---------- live activity ----------------------------------------------------
 let lastEventTs = new Date().toISOString();
+
+function recordRetrieval(ev) {
+  if (ev.event !== "grains_returned") return;
+  const d = ev.data || {};
+  const traceId = d.trace_id || ev.trace_id;
+  if (!traceId) return;
+  const existing = recentRetrievals.findIndex(r => r.trace_id === traceId);
+  if (existing >= 0) recentRetrievals.splice(existing, 1);
+  recentRetrievals.push({trace_id: traceId, query: d.query || "", ts: ev.timestamp || new Date().toISOString()});
+  while (recentRetrievals.length > 8) recentRetrievals.shift();
+}
+
+function openTracePicker() {
+  const items = recentRetrievals.slice().reverse();
+  document.getElementById('pin-body').innerHTML =
+    `<div style="color:#22d3ee">recent retrievals</div>
+     <div class="p-meta">select a trace to replay its retrieval walk</div>` +
+    (items.length
+      ? items.map(r => `<div class="nb trace-retrieval" data-trace-id="${esc(r.trace_id)}" style="border-color:#22d3ee">
+          <span class="w" style="color:#22d3ee">${esc(new Date(r.ts).toLocaleTimeString())}</span>
+          ${esc((r.query || r.trace_id).slice(0, 110))}
+        </div>`).join("")
+      : `<div class="p-meta">no retrieval traces seen yet</div>`);
+  const pin = document.getElementById('pin');
+  pin.classList.add('show');
+  pin.querySelectorAll('.trace-retrieval').forEach(el => {
+    el.addEventListener('click', () => walkTrace(el.dataset.traceId));
+  });
+}
+
+function signalText(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(3) : esc(value ?? "");
+}
+
+function renderTraceWalk(data) {
+  const steps = data.steps || [];
+  document.getElementById('pin-body').innerHTML =
+    `<div style="color:#22d3ee">trace walk</div>
+     <div class="p-meta">${esc(data.query || "retrieval")}<br>${esc(data.created_at || "")}</div>
+     <div class="nb-title">steps (${steps.length})</div>` +
+    (steps.length
+      ? steps.map(step => {
+          const from = step.from || {};
+          const to = step.to || {};
+          const animates = from.kind === "grain" && to.kind === "grain" &&
+            byId.has(from.id) && byId.has(to.id);
+          const color = animates ? "#fde047" : "rgba(80,120,200,0.6)";
+          return `<div class="nb trace-step" style="border-color:${color}">
+            <span class="w" style="color:${color}">hop ${esc(step.hop ?? "")}</span>
+            ${esc(from.label || from.id || "")} &rarr; ${esc(to.label || to.id || "")}
+            <div class="p-meta">signal ${signalText(step.signal)} · ${esc(from.kind || "unknown")} to ${esc(to.kind || "unknown")}</div>
+          </div>`;
+        }).join("")
+      : `<div class="p-meta">no trace steps recorded</div>`);
+  document.getElementById('pin').classList.add('show');
+}
+
+async function walkTrace(traceId) {
+  if (!traceId) return;
+  const pin = document.getElementById('pin');
+  pin.classList.add('show');
+  document.getElementById('pin-body').innerHTML =
+    `<div style="color:#22d3ee">trace walk</div><div class="p-meta">loading ${esc(traceId)}</div>`;
+  try {
+    const resp = await fetch(`/api/trace_walk?trace_id=${encodeURIComponent(traceId)}`, {cache: 'no-store'});
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      document.getElementById('pin-body').innerHTML =
+        `<div style="color:#fb7185">trace unavailable</div><div class="p-meta">${esc(data.error || resp.status)}</div>`;
+      return;
+    }
+
+    renderTraceWalk(data);
+    for (const step of data.steps || []) {
+      const from = step.from || {};
+      const to = step.to || {};
+      if (from.kind !== "grain" || to.kind !== "grain") continue;
+      if (!byId.has(from.id) || !byId.has(to.id)) continue;
+      const delay = Math.max(0, Number(step.hop) || 0) * 700;
+      setTimeout(() => {
+        const a = byId.get(from.id), b = byId.get(to.id);
+        if (a == null || b == null) return;
+        const until = performance.now() + 6000;
+        activeEdges.push({a, b, until, color: "#fde047"});
+        activeGrains.set(b, {until, color: "#e8f2ff"});
+      }, delay);
+    }
+  } catch (err) {
+    document.getElementById('pin-body').innerHTML =
+      `<div style="color:#fb7185">trace unavailable</div><div class="p-meta">${esc(err.message || err)}</div>`;
+  }
+}
+
+document.getElementById('ticker').addEventListener('click', openTracePicker);
+
 function spawnFor(ev) {
   const d = ev.data || {};
   const now = performance.now();
@@ -776,6 +874,7 @@ async function pollEvents() {
     const d = await (await fetch('/api/events?limit=40')).json();
     const fresh = (d.events || []).filter(e => e.timestamp > lastEventTs).reverse();
     if (fresh.length) lastEventTs = fresh[fresh.length - 1].timestamp;
+    for (const ev of fresh) recordRetrieval(ev);
     if (!isLive()) return;
     let lastTick = null;
     for (const ev of fresh) { spawnFor(ev); lastTick = tickerText(ev) || lastTick; }
@@ -899,6 +998,7 @@ function convexHull(pts) {
         const ev = JSON.parse(msg.data);
         if (ev.timestamp <= lastEventTs) return;
         lastEventTs = ev.timestamp;
+        recordRetrieval(ev);
         if (!isLive()) return;
         spawnFor(ev);
         const t = tickerText(ev);
