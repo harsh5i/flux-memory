@@ -137,6 +137,20 @@ class Config:
     ADMIN_MAX_ATTEMPTS: int = 3
     ADMIN_SESSION_HOURS: int = 1
 
+    # --- Store hygiene ---
+    # New grains with embedding cosine similarity >= this to an existing active
+    # grain are treated as duplicates: the existing grain_id is returned and no
+    # new grain is inserted. Set > 1.0 to disable.
+    DEDUP_SIMILARITY_THRESHOLD: float = 0.90
+
+    # --- Health alerts ---
+    # When enabled, newly fired (or re-fired) health warnings are pushed to a
+    # Telegram chat. Credentials belong in the instance flux.yaml, not the repo.
+    ALERTS_ENABLED: bool = False
+    ALERT_TELEGRAM_BOT_TOKEN: str = ""
+    ALERT_TELEGRAM_CHAT_ID: str = ""
+    ALERT_MIN_INTERVAL_HOURS: float = 6.0
+
     # --- Provenance reinforcement multipliers (Section 7.2) ---
     def provenance_multiplier(self, provenance: str) -> float:
         return {

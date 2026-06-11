@@ -25,7 +25,12 @@ from typing import Any
 from .config import Config, DEFAULT_CONFIG
 from .embedding import EmbeddingBackend, vector_fallback
 from .expansion import expand_results
-from .extraction import decompose_query, extract_and_store_grains, store_atomic_grain
+from .extraction import (
+    decompose_query,
+    extract_and_store_grains,
+    store_atomic_grain,
+    store_atomic_grain_ex,
+)
 from .graph import Grain, Trace, new_id, utcnow
 from .health import log_event, normalize_caller_id, pending_feedback_for_caller
 from .llm import LLMBackend
@@ -113,11 +118,42 @@ def flux_store(
 ) -> str:
     """Insert a single grain into the store and create bootstrap conduits.
 
-    Returns the new grain's ID.
+    Returns the grain's ID. Back-compat wrapper around :func:`flux_store_ex`.
+    """
+    grain_id, _status = flux_store_ex(
+        content, provenance, store=store, llm=llm, emb=emb, cfg=cfg,
+        now=now, caller_id=caller_id,
+    )
+    return grain_id
 
-    If llm and emb are provided, bootstrap conduits are created via embedding
-    similarity the same way extract_and_store_grains does. If they are omitted,
-    the grain is stored bare (no conduits, no entry connections).
+
+def flux_store_ex(
+    content: str,
+    provenance: str = "user_stated",
+    *,
+    store: FluxStore,
+    llm: LLMBackend | None = None,
+    emb: EmbeddingBackend | None = None,
+    cfg: Config = DEFAULT_CONFIG,
+    now: datetime | None = None,
+    caller_id: str = "default",
+) -> tuple[str, str]:
+    """Insert a single grain and create bootstrap conduits.
+
+    Returns ``(grain_id, status)`` where status is one of:
+      - ``"stored_wired"``: grain inserted with embedding + bootstrap conduits.
+      - ``"duplicate"``: a near-identical active grain already exists; its id
+        is returned and nothing new is inserted.
+      - ``"stored_bare"``: grain inserted WITHOUT graph wiring (no embedding
+        backend, or embedding failed). Bare grains are invisible to graph
+        propagation and vector fallback until a rebuild backfills them.
+
+    If emb is provided, bootstrap conduits are created via embedding similarity.
+    With llm also provided the content is first run through grain extraction;
+    with llm=None (caller_extracts mode) the content is stored as one atomic
+    grain and still wired into the graph (embedding, neighbour conduits, entry
+    conduits via fallback tokenization). If emb is omitted, the grain is stored
+    bare (no conduits, no entry connections).
     """
     now = now or utcnow()
     content = content.strip()
@@ -127,6 +163,18 @@ def flux_store(
     valid_provenance = {"user_stated", "ai_stated", "ai_inferred", "external_source"}
     if provenance not in valid_provenance:
         raise ValueError(f"flux_store: provenance must be one of {valid_provenance}")
+
+    if llm is None and emb is not None:
+        # caller_extracts mode: content is already atomic; embed and wire it in.
+        return store_atomic_grain_ex(
+            content,
+            provenance,
+            llm=None,
+            embedding_backend=emb,
+            store=store,
+            cfg=cfg,
+            now=now,
+        )
 
     if llm is not None and emb is not None:
         # Route through extract_and_store_grains using a synthetic "conversation turn"
@@ -141,10 +189,10 @@ def flux_store(
             now=now,
         )
         if grain_ids:
-            return grain_ids[0]
+            return grain_ids[0], "stored_wired"
         # Fallback: the caller already supplied an atomic fact, so store it and
         # still wire it into the graph with embeddings and entry conduits.
-        return store_atomic_grain(
+        return store_atomic_grain_ex(
             content,
             provenance,
             llm=llm,
@@ -162,7 +210,7 @@ def flux_store(
         "content_len": len(content),
         "via": "flux_store_direct",
     }, now=now, caller_id=caller_id)
-    return grain.id
+    return grain.id, "stored_bare"
 
 
 # ----------------------------------------------------------------- read channel

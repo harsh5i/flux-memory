@@ -132,11 +132,11 @@ class TestFluxStoreCaller:
             "caller_id": "agent-a",
         }, store, cfg)
         assert "grain_id" in result
-        assert result["status"] == "stored"
+        assert result["status"] == "stored_wired"
 
     def test_store_default_caller(self, store, cfg):
         result = dispatch("flux_store", {"content": "no caller"}, store, cfg)
-        assert result["status"] == "stored"
+        assert result["status"] == "stored_wired"
 
 
 # ---------------------------------------------------------------- flux_retrieve with caller_id
@@ -181,7 +181,7 @@ class TestUnknownTool:
 class TestMCPViaService:
     def test_store_via_service(self, store, cfg, svc):
         result = dispatch("flux_store", {"content": "booth-stored"}, store, cfg, svc=svc)
-        assert result["status"] == "stored"
+        assert result["status"] == "stored_wired"
 
     def test_retrieve_via_service(self, store, cfg, svc):
         svc.store("booth grain", caller_id="setup")
@@ -197,4 +197,4 @@ class TestMCPViaService:
                 "grain_id": ret["grains"][0]["id"],
                 "useful": True,
             }, store, cfg, svc=svc)
-            assert result["status"] == "queued"
+            assert result["action"] in ("reinforced", "penalized")

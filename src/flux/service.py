@@ -42,7 +42,14 @@ from .embedding import EmbeddingBackend, SentenceTransformerBackend
 from .graph import utcnow
 from .health import log_event
 from .llm import LLMBackend, OllamaBackend
-from .retrieval import FeedbackResult, RetrievalResult, flux_feedback, flux_retrieve, flux_store
+from .retrieval import (
+    FeedbackResult,
+    RetrievalResult,
+    flux_feedback,
+    flux_retrieve,
+    flux_store,
+    flux_store_ex,
+)
 from .storage import FluxStore
 
 logger = logging.getLogger(__name__)
@@ -185,6 +192,15 @@ class FluxService:
     def store(self, content: str, provenance: str = "ai_stated",
               caller_id: str = "default") -> str:
         """Queue a store request. Blocks until processed or raises on limit."""
+        return self.store_ex(content, provenance, caller_id=caller_id)[0]
+
+    def store_ex(self, content: str, provenance: str = "ai_stated",
+                 caller_id: str = "default") -> tuple[str, str]:
+        """Queue a store request; returns (grain_id, status).
+
+        Status is "stored_wired", "duplicate", or "stored_bare" — see
+        retrieval.flux_store_ex.
+        """
         if not content or not content.strip():
             raise ValueError("content must not be empty")
         # Batch cap: single item, but enforces same rule.
@@ -197,7 +213,7 @@ class FluxService:
                 f"Rate limit exceeded for caller '{caller_id}'. "
                 f"Max {self._cfg.MAX_GRAINS_PER_MINUTE} grains/min."
             )
-        result_q: queue.Queue[str | Exception] = queue.Queue()
+        result_q: queue.Queue[tuple[str, str] | Exception] = queue.Queue()
         self._write_queue.put(_WriteItem(content, provenance, caller_id, result_q))
         outcome = result_q.get()
         if isinstance(outcome, Exception):
@@ -230,31 +246,52 @@ class FluxService:
     def feedback_sync(self, trace_id: str, grain_id: str, useful: bool,
                       caller_id: str = "default") -> FeedbackResult:
         """Apply feedback synchronously (for SDK callers that want the result)."""
-        return flux_feedback(trace_id, grain_id, useful,
-                             store=self._store, cfg=self._cfg,
-                             caller_id=caller_id)
+        with self._store.lock():
+            return flux_feedback(trace_id, grain_id, useful,
+                                 store=self._store, cfg=self._cfg,
+                                 caller_id=caller_id)
+
+    def feedback_batch_sync(self, items: list[dict],
+                            caller_id: str = "default") -> list[FeedbackResult]:
+        """Apply feedback for multiple grains synchronously.
+
+        Each item: {"trace_id": str, "grain_id": str, "useful": bool}
+        Returns list of FeedbackResult.
+        """
+        results = []
+        with self._store.lock():
+            for item in items:
+                result = flux_feedback(
+                    item["trace_id"], item["grain_id"], item["useful"],
+                    store=self._store, cfg=self._cfg,
+                    caller_id=caller_id,
+                )
+                results.append(result)
+        return results
 
     def health(self) -> dict:
         from .health import flux_health
-        return flux_health(self._store, self._cfg)
+        with self._store.lock():
+            return flux_health(self._store, self._cfg)
 
     def list_grains(self, status: str | None = None, limit: int = 50) -> list[dict]:
         """Return grains filtered by status (read-only)."""
         valid = {"active", "dormant", "quarantined", "archived"}
         if status and status not in valid:
             raise ValueError(f"Invalid status '{status}'. Valid: {sorted(valid)}")
-        if status:
-            rows = self._store.conn.execute(
-                "SELECT id, content, status, provenance, created_at "
-                "FROM grains WHERE status = ? ORDER BY created_at DESC LIMIT ?",
-                (status, limit),
-            ).fetchall()
-        else:
-            rows = self._store.conn.execute(
-                "SELECT id, content, status, provenance, created_at "
-                "FROM grains ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+        with self._store.lock():
+            if status:
+                rows = self._store.conn.execute(
+                    "SELECT id, content, status, provenance, created_at "
+                    "FROM grains WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                    (status, limit),
+                ).fetchall()
+            else:
+                rows = self._store.conn.execute(
+                    "SELECT id, content, status, provenance, created_at "
+                    "FROM grains ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
         return [
             {
                 "id": r["id"],
@@ -274,16 +311,17 @@ class FluxService:
             if item is None:
                 break
             try:
-                gid = flux_store(
-                    item.content,
-                    provenance=item.provenance,
-                    store=self._store,
-                    llm=self._llm,
-                    emb=self._emb,
-                    cfg=self._cfg,
-                    caller_id=item.caller_id,
-                )
-                item.result_future.put(gid)
+                with self._store.lock():
+                    outcome = flux_store_ex(
+                        item.content,
+                        provenance=item.provenance,
+                        store=self._store,
+                        llm=None,  # caller_extracts mode: skip LLM, embed directly
+                        emb=self._emb,
+                        cfg=self._cfg,
+                        caller_id=item.caller_id,
+                    )
+                item.result_future.put(outcome)
             except Exception as exc:
                 item.result_future.put(exc)
 
@@ -293,10 +331,11 @@ class FluxService:
             if item is None:
                 break
             try:
-                flux_feedback(
-                    item.trace_id, item.grain_id, item.useful,
-                    store=self._store, cfg=self._cfg,
-                    caller_id=item.caller_id,
-                )
+                with self._store.lock():
+                    flux_feedback(
+                        item.trace_id, item.grain_id, item.useful,
+                        store=self._store, cfg=self._cfg,
+                        caller_id=item.caller_id,
+                    )
             except Exception as exc:
                 logger.error("feedback worker error: %s", exc)

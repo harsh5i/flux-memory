@@ -159,7 +159,7 @@ def store_atomic_grain(
     content: str,
     provenance: str,
     *,
-    llm: LLMBackend,
+    llm: LLMBackend | None,
     embedding_backend: EmbeddingBackend,
     store: FluxStore,
     cfg: Config = DEFAULT_CONFIG,
@@ -167,11 +167,60 @@ def store_atomic_grain(
 ) -> str:
     """Store one already-atomic grain and wire it into the graph.
 
+    Back-compat wrapper around :func:`store_atomic_grain_ex`.
+    """
+    grain_id, _status = store_atomic_grain_ex(
+        content, provenance, llm=llm, embedding_backend=embedding_backend,
+        store=store, cfg=cfg, now=now,
+    )
+    return grain_id
+
+
+def store_atomic_grain_ex(
+    content: str,
+    provenance: str,
+    *,
+    llm: LLMBackend | None,
+    embedding_backend: EmbeddingBackend,
+    store: FluxStore,
+    cfg: Config = DEFAULT_CONFIG,
+    now: datetime | None = None,
+) -> tuple[str, str]:
+    """Store one already-atomic grain and wire it into the graph.
+
     This is the caller_extracts path: the caller has already decided the memory
     is worth storing, so Flux should still create embeddings and entry conduits
     even when the local LLM cannot perform full grain extraction.
+
+    Returns ``(grain_id, status)`` where status is one of:
+      - ``"duplicate"``: an existing active grain is >= DEDUP_SIMILARITY_THRESHOLD
+        similar; its id is returned and nothing new is inserted.
+      - ``"stored_wired"``: grain inserted with embedding + bootstrap conduits.
+      - ``"stored_bare"``: grain inserted but graph wiring failed (no embedding).
     """
     now = now or utcnow()
+
+    embedding: list[float] | None = None
+    existing_grain_ids: list[str] = []
+    existing_matrix = None
+    try:
+        existing_grain_ids, existing_matrix = load_all_embeddings(store)
+        embedding = embedding_backend.embed(content)
+    except Exception as exc:
+        logger.error("store_atomic_grain: embedding failed: %s", exc)
+
+    # Dedup gate: near-identical active grain already exists -> return it.
+    if embedding is not None and existing_grain_ids:
+        nearest = top_k_nearest(embedding, existing_grain_ids, existing_matrix, k=1)
+        if nearest and nearest[0][1] >= cfg.DEDUP_SIMILARITY_THRESHOLD:
+            duplicate_id, similarity = nearest[0]
+            log_event(store, "write", "grain_deduplicated", {
+                "existing_grain_id": duplicate_id,
+                "similarity": round(similarity, 4),
+                "content_len": len(content),
+            }, now=now)
+            return duplicate_id, "duplicate"
+
     grain = Grain(content=content, provenance=provenance, created_at=now)
     store.insert_grain(grain)
     log_event(store, "write", "grain_stored", {
@@ -179,15 +228,57 @@ def store_atomic_grain(
         "provenance": provenance,
         "content_len": len(content),
     }, now=now)
-    backfill_grain_graph(grain, llm=llm, embedding_backend=embedding_backend,
-                         store=store, cfg=cfg, now=now)
-    return grain.id
+
+    if embedding is None:
+        _connect_to_entries(grain, llm, store, cfg, now)
+        return grain.id, "stored_bare"
+
+    model_name = getattr(embedding_backend, "model_name", "unknown")
+    _wire_grain_conduits(store, grain, embedding, existing_grain_ids,
+                         existing_matrix, cfg, now)
+    store_embedding(store, grain.id, embedding, model_name, now)
+    _connect_to_entries(grain, llm, store, cfg, now)
+    return grain.id, "stored_wired"
+
+
+def _wire_grain_conduits(
+    store: FluxStore,
+    grain: Grain,
+    embedding: list[float],
+    existing_grain_ids: list[str],
+    existing_matrix,
+    cfg: Config,
+    now: datetime,
+) -> None:
+    """Create bootstrap conduits from a grain to its k-nearest neighbours."""
+    if not existing_grain_ids:
+        return
+    neighbours = top_k_nearest(embedding, existing_grain_ids, existing_matrix, k=5)
+    for neighbour_id, similarity in neighbours:
+        if similarity <= 0 or neighbour_id == grain.id:
+            continue
+        weight = similarity * cfg.INITIAL_WEIGHT_SCALE
+        if weight < cfg.WEIGHT_FLOOR:
+            continue
+        conduit = Conduit(
+            from_id=grain.id,
+            to_id=neighbour_id,
+            weight=weight,
+            created_at=now,
+            last_used=now,
+            direction="bidirectional",
+            decay_class="working",
+        )
+        try:
+            store.insert_conduit(conduit)
+        except Exception:
+            pass
 
 
 def backfill_grain_graph(
     grain: Grain,
     *,
-    llm: LLMBackend,
+    llm: LLMBackend | None,
     embedding_backend: EmbeddingBackend,
     store: FluxStore,
     cfg: Config = DEFAULT_CONFIG,
@@ -212,27 +303,8 @@ def backfill_grain_graph(
         except Exception as exc:
             logger.error("backfill_grain_graph: embedding failed for grain %s: %s", grain.id, exc)
         else:
-            if existing_grain_ids:
-                neighbours = top_k_nearest(embedding, existing_grain_ids, existing_matrix, k=5)
-                for neighbour_id, similarity in neighbours:
-                    if similarity <= 0:
-                        continue
-                    weight = similarity * cfg.INITIAL_WEIGHT_SCALE
-                    if weight < cfg.WEIGHT_FLOOR:
-                        continue
-                    conduit = Conduit(
-                        from_id=grain.id,
-                        to_id=neighbour_id,
-                        weight=weight,
-                        created_at=now,
-                        last_used=now,
-                        direction="bidirectional",
-                        decay_class="working",
-                    )
-                    try:
-                        store.insert_conduit(conduit)
-                    except Exception:
-                        pass
+            _wire_grain_conduits(store, grain, embedding, existing_grain_ids,
+                                 existing_matrix, cfg, now)
             store_embedding(store, grain.id, embedding, model_name, now)
 
     _connect_to_entries(grain, llm, store, cfg, now)

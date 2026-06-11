@@ -18,6 +18,10 @@ html,body{height:100%;overflow:hidden;background:#020408;font-family:'IBM Plex M
   padding:0 16px;gap:0;flex-wrap:wrap;
 }
 .tr{margin-left:auto;display:flex;align-items:center;gap:14px}
+.refresh-btn{background:none;border:1px solid rgba(80,120,200,0.25);color:rgba(200,218,240,0.55);font-size:13px;width:26px;height:26px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;padding:0;line-height:1}
+.refresh-btn:hover{background:rgba(80,120,200,0.12);color:#22d3ee;border-color:rgba(34,211,238,0.4)}
+.refresh-btn.spinning>span{display:inline-block;animation:spin 0.6s linear}
+@keyframes spin{to{transform:rotate(360deg)}}
 .ld{width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 7px #4ade80;animation:blink 2.2s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
 .tmeta{font-size:10px;color:rgba(200,218,240,0.3);letter-spacing:.04em}
@@ -163,6 +167,8 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
       <a href="/" class="flux-nav-item">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
       <a href="/mycelium" class="flux-nav-item active">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
       <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
+      <a href="/pool" class="flux-nav-item">Pool<span class="flux-nav-item-sub">reflecting pool visualization</span></a>
+      <a href="/nebula" class="flux-nav-item">Nebula<span class="flux-nav-item-sub">breathing 3D cloud</span></a>
     </div>
   </div>
   <div class="metric-strip" id="metric-strip">
@@ -175,6 +181,7 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
     <div class="metric-pill"><span class="ml">Feedback</span><span class="mv rs" id="mp-feedback">—</span></div>
   </div>
   <div class="tr">
+    <button class="refresh-btn" id="refresh-btn" title="Refresh graph"><span>↻</span></button>
     <div style="display:flex;align-items:center;gap:7px"><div class="ld"></div><span class="tmeta">live</span></div>
     <span class="tmeta" id="hdr-meta">loading…</span>
   </div>
@@ -220,6 +227,10 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
   document.addEventListener('click', () => nav.classList.remove('open'));
 })();
 
+// ── MOBILE DETECT (perf budget) ──────────────────────────────────────────────
+const IS_MOBILE = matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 800;
+const FRAME_MIN_MS = IS_MOBILE ? 33 : 0;  // cap ~30fps on mobile, uncapped on desktop
+
 // ── PALETTE (cluster colors — labels populated from real cluster ids when present) ───
 const CL_PALETTE = [
   {color:'#22d3ee',rgb:[34,211,238]},
@@ -237,6 +248,7 @@ const CL = CL_PALETTE.slice(0,6).map((c,i) => ({...c, id:i, name:''})); // names
 let grains = [];
 let conduits = [];
 let positions = [];
+let positionsSeq = 0;  // bumped whenever positions change (force layout, soft-refresh, pop-in) — used to invalidate per-conduit caches
 let CTYPES = ['semantic','propagation','feedback','temporal'];
 
 function lcg(s){return()=>{s=(s*1664525+1013904223)&0xffffffff;return(s>>>0)/0xffffffff;}}
@@ -344,7 +356,7 @@ async function loadData(){
 const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d');
 const stage=canvas.parentElement;
-let W=0,H=0,DPR=devicePixelRatio||1;
+let W=0,H=0,DPR=Math.min(devicePixelRatio||1, IS_MOBILE ? 1.5 : 3);
 
 // Pan/zoom state — applied as world→screen via screen = (world - panOrigin)*scale + canvasCenter
 let viewScale = 1, viewX = 0, viewY = 0;          // viewX,viewY = pan offset in screen px
@@ -419,10 +431,11 @@ function runForce(){
       p.y=Math.max(40,Math.min(H-40,p.y));
     });
   }
+  positionsSeq++;
 }
 
 // ── AMBIENT PARTICLES ─────────────────────────────────────────────────────────
-const PTCL_N=220;
+const PTCL_N = IS_MOBILE ? 70 : 220;
 const ptcls=Array.from({length:PTCL_N},()=>({
   x:Math.random()*1440, y:Math.random()*900,
   vx:(Math.random()-.5)*.12, vy:-(Math.random()*.25+.05),
@@ -452,14 +465,29 @@ let t=0;
 let hoveredGrain=null;
 let selectedGrain=null;
 
-function draw(){
+let lastFrameMs = 0;
+function draw(now){
+  // Frame-rate cap for mobile (skip frames to stay under budget)
+  if (FRAME_MIN_MS && now && (now - lastFrameMs) < FRAME_MIN_MS) {
+    requestAnimationFrame(draw); return;
+  }
+  lastFrameMs = now || 0;
+
   t+=0.015;
+
+  // Activation spotlight strength — computed once, used by particles, aura, edges, grains, labels
+  const maxPulse = Object.values(activeGrainPulse).reduce((mx, v) => Math.max(mx, v), 0);
+  const actDim = maxPulse > 0.05 ? 0.06 + 0.10 * (1 - Math.min(maxPulse, 1)) : 1;
+  const isPulseActive = maxPulse > 0.05;
+
   ctx.clearRect(0,0,W,H);
 
   const bg=ctx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,Math.max(W,H)*.65);
   bg.addColorStop(0,'#050b1a');bg.addColorStop(1,'#020408');
   ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
 
+  // Ambient particles — dim with activation so they don't compete with the spotlight
+  const ptclDim = isPulseActive ? 0.25 + 0.35 * actDim : 1;
   ptcls.forEach(p=>{
     p.x+=p.vx; p.y+=p.vy;
     if(p.y<-4){p.y=H+4;p.x=Math.random()*W;}
@@ -467,7 +495,7 @@ function draw(){
     if(p.x>W+4) p.x=-4;
     const tw=0.4+0.6*Math.sin(t*0.5+p.phase);
     ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-    ctx.fillStyle=`rgba(160,200,255,${p.a*tw*0.5})`;
+    ctx.fillStyle=`rgba(160,200,255,${p.a*tw*0.5*ptclDim})`;
     ctx.fill();
   });
 
@@ -484,7 +512,9 @@ function draw(){
     grains.forEach((g,i)=>{
       const p=positions[i];const cl=CL[g.cid];if(!cl)return;
       const isFaded=selectedGrain!==null&&selectedGrain!==g.id&&!g.conns.some(c=>(c.a===selectedGrain||c.b===selectedGrain));
-      const alpha=(g.status==='archived'?.3:g.status==='dormant'?.5:1)*(isFaded?.12:1);
+      const isPulsing = (activeGrainPulse[i] || 0) > 0.05;
+      const actSpot = isPulsing ? 1 : actDim;
+      const alpha=(g.status==='archived'?.3:g.status==='dormant'?.5:1)*(isFaded?.12:1)*actSpot;
       const aura=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,g.weight*110+60);
       aura.addColorStop(0,`rgba(${cl.rgb.join(',')},${0.055*alpha})`);
       aura.addColorStop(1,`rgba(${cl.rgb.join(',')},0)`);
@@ -498,10 +528,14 @@ function draw(){
     const pa=positions[tf.c.a],pb=positions[tf.c.b];if(!pa||!pb)return;
     const isHighlit=selectedGrain!==null&&(tf.c.a===selectedGrain||tf.c.b===selectedGrain);
     const isHovHighlit=hoveredGrain!==null&&(tf.c.a===hoveredGrain||tf.c.b===hoveredGrain);
-    const fade=selectedGrain!==null?isHighlit?.9:.04:hoveredGrain!==null?isHovHighlit?.5:.05:0.1;
+    const aPulse=(activeGrainPulse[tf.c.a]||0)+(activeGrainPulse[tf.c.b]||0);
+    const edgeDim=aPulse>0.05?1:actDim;
+    const fade=selectedGrain!==null?isHighlit?.9:.04:hoveredGrain!==null?isHovHighlit?.5:.05:0.1*edgeDim;
     if(fade<0.02) return;
     const clA=CL[ga.cid]?.rgb||[120,150,200],clB=CL[gb.cid]?.rgb||[120,150,200];
-    const mid=bezierMid(pa,pb);
+    // Bezier midpoint is deterministic given positions — cache it after layout, recompute only on staleness
+    if (!tf.cachedMid || tf.midSeq !== positionsSeq) { tf.cachedMid = bezierMid(pa,pb); tf.midSeq = positionsSeq; }
+    const mid = tf.cachedMid;
     const tg=ctx.createLinearGradient(pa.x,pa.y,pb.x,pb.y);
     tg.addColorStop(0,`rgba(${clA.join(',')},${fade*tf.c.wt})`);
     tg.addColorStop(1,`rgba(${clB.join(',')},${fade*tf.c.wt*0.5})`);
@@ -538,14 +572,18 @@ function draw(){
     const isFaded=selectedGrain!==null&&!isSel&&!g.conns.some(c=>(c.a===selectedGrain||c.b===selectedGrain));
     const isHovFaded=hoveredGrain!==null&&!isHov&&!g.conns.some(c=>(c.a===hoveredGrain||c.b===hoveredGrain));
 
-    const globalAlpha=isFaded?.08:isHovFaded?.3:1;
+    // Activation spotlight: when grains are pulsing, dim non-pulsing ones
+    const evPulse = activeGrainPulse[i] || 0;
+    const isPulsing = evPulse > 0.05;
+    const spotlightDim = isPulsing ? 1 : actDim;
+
+    const globalAlpha=isFaded?.08:isHovFaded?.3:spotlightDim;
     const statusAlpha=g.status==='archived'?.3:g.status==='dormant'?.55:g.status==='quarantined'?.5:1;
     const masterAlpha=globalAlpha*statusAlpha;
 
     // Scale baseR down for dense graphs
     const sizeScale = grains.length < 80 ? 1 : grains.length < 300 ? 0.7 : 0.45;
     // Live activity pulse: decay each frame, boost on event
-    const evPulse = activeGrainPulse[i] || 0;
     if (evPulse > 0) activeGrainPulse[i] = Math.max(0, evPulse - 0.012);
     const baseR=(3+g.weight*9)*sizeScale*(1 + evPulse*0.6);
     const pulse=1+Math.sin(t*1.4+i*0.7)*0.1*(g.status==='active'?1:.3);
@@ -594,7 +632,9 @@ function draw(){
         const sizeScale = grains.length < 80 ? 1 : grains.length < 300 ? 0.7 : 0.45;
         const gr=(3+g.weight*9)*sizeScale;
         ctx.font='10px IBM Plex Mono';
-        ctx.fillStyle=`rgba(${cl.rgb.join(',')},0.45)`;
+        const isPulsingL = (activeGrainPulse[g.id] || 0) > 0.05;
+        const labelAlpha = maxPulse > 0.05 ? (isPulsingL ? 0.6 : 0.15) : 0.45;
+        ctx.fillStyle=`rgba(${cl.rgb.join(',')},${labelAlpha})`;
         ctx.textAlign='center';ctx.textBaseline='top';
         ctx.fillText(g.content.slice(0,30)+(g.content.length>30?'…':''),p.x,p.y+gr*3.4+2);
         ctx.textAlign='left';ctx.textBaseline='alphabetic';
@@ -820,7 +860,14 @@ function handleEvent(ev){
     if (Array.isArray(d.activated_grain_ids)) gids = d.activated_grain_ids.map(gIdx).filter(i=>i!==null);
   } else if (ev.category === 'write' && ev.event === 'grain_stored') {
     type = 'store';
-    const i = gIdx(d.grain_id); if (i !== null) gids = [i];
+    const i = gIdx(d.grain_id);
+    if (i !== null) {
+      gids = [i];
+    } else if (d.grain_id) {
+      // New grain we don't know about — pop it in via a soft refresh, then highlight.
+      schedulePopIn(d.grain_id);
+      // Fall through with no current gids; the pop-in handler will pulse it once it lands.
+    }
   } else if (ev.event === 'feedback_received') {
     type = d.action === 'penalized' ? 'penalize' : d.action === 'reinforced' ? 'reinforce' : 'feedback';
     const i = gIdx(d.grain_id); if (i !== null) gids = [i];
@@ -852,6 +899,31 @@ function handleEvent(ev){
 
 const activeGrainPulse = {}; // grain_idx → pulse strength (decays)
 
+// Debounced pop-in for new grains: queue arrival, fetch graph once, then pulse each.
+const pendingPopIns = new Set();
+let popInTimer = null;
+function schedulePopIn(rid){
+  pendingPopIns.add(rid);
+  if (popInTimer) return;
+  popInTimer = setTimeout(async () => {
+    popInTimer = null;
+    const rids = Array.from(pendingPopIns);
+    pendingPopIns.clear();
+    await refreshSoft();
+    rids.forEach(rid => {
+      const g = grains.find(x => x.rid === rid);
+      if (g) {
+        activeGrainPulse[g.id] = 1.5;  // brighter than normal pulse so it visibly pops
+        const p = positions[g.id];
+        if (p) {
+          const cl = CL[g.cid] || CL[CL.length-1];
+          ripples.push({x:p.x, y:p.y, r:5, maxR:80, alpha:0.85, color:cl.color});
+        }
+      }
+    });
+  }, 600);  // batch rapid stores into one refresh
+}
+
 function addActFeed(type, col, gids){
   const feed = document.getElementById('act-feed');
   const g = grains[gids[0]];
@@ -879,7 +951,17 @@ async function init(){
   updateMetrics();
   setInterval(updateMetrics, 5000);
   setInterval(pollEvents, 2000);
-  setInterval(refreshSoft, 60000);
+  // Auto-refresh removed by design — graph refreshes only on (a) explicit click of the refresh button,
+  // or (b) a `grain_stored` event arriving for a grain we don't yet know about (pop-in path).
+
+  // Manual refresh button
+  const rbtn = document.getElementById('refresh-btn');
+  if (rbtn) rbtn.addEventListener('click', () => {
+    if (rbtn.classList.contains('spinning')) return;
+    rbtn.classList.add('spinning');
+    Promise.all([refreshSoft(), updateMetrics()])
+      .finally(() => setTimeout(() => rbtn.classList.remove('spinning'), 600));
+  });
 }
 
 async function refreshSoft(){
@@ -896,8 +978,14 @@ async function refreshSoft(){
       positions = grains.map(g => {
         const oldIdx = prev.get(g.rid);
         if (oldIdx !== undefined && oldPositions[oldIdx]) return {...oldPositions[oldIdx]};
-        return {x:W/2+(Math.random()-.5)*200, y:H/2+(Math.random()-.5)*200, vx:0, vy:0};
+        // New grain: spawn near the busiest active region (or canvas centre as fallback) so it visibly arrives.
+        const anchorIdx = Object.entries(activeGrainPulse).sort((a,b)=>b[1]-a[1])[0]?.[0];
+        const anchor = anchorIdx !== undefined && oldPositions[anchorIdx];
+        const cx = anchor ? anchor.x : W/2;
+        const cy = anchor ? anchor.y : H/2;
+        return {x:cx+(Math.random()-.5)*120, y:cy+(Math.random()-.5)*120, vx:0, vy:0};
       });
+      positionsSeq++;  // invalidate per-conduit bezier caches
     }
     rebuildFlow();
   } catch (err) {

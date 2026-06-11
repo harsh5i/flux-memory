@@ -54,6 +54,14 @@ try:
         grain_id: str
         useful: bool
 
+    class FeedbackBatchItem(BaseModel):
+        trace_id: str
+        grain_id: str
+        useful: bool
+
+    class FeedbackBatchRequest(BaseModel):
+        items: List[FeedbackBatchItem]
+
 except ImportError:
     pass  # build_app will raise with a helpful message if called without fastapi
 
@@ -109,8 +117,8 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     def store(body: StoreRequest, request: Request):
         caller_id = _caller(request)
         try:
-            grain_id = service.store(body.content, body.provenance, caller_id=caller_id)
-            return {"grain_id": grain_id, "status": "stored"}
+            grain_id, status = service.store_ex(body.content, body.provenance, caller_id=caller_id)
+            return {"grain_id": grain_id, "status": status}
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         except RuntimeError as exc:
@@ -155,8 +163,29 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     @app.post("/feedback")
     def feedback(body: FeedbackRequest, request: Request):
         caller_id = _caller(request)
-        service.feedback(body.trace_id, body.grain_id, body.useful, caller_id=caller_id)
-        return {"status": "queued"}
+        result = service.feedback_sync(body.trace_id, body.grain_id, body.useful, caller_id=caller_id)
+        return {"status": "ok", "signal": result.effective_signal}
+
+    @app.post("/feedback/batch")
+    def feedback_batch(body: FeedbackBatchRequest, request: Request):
+        caller_id = _caller(request)
+        items = [
+            {"trace_id": item.trace_id, "grain_id": item.grain_id, "useful": item.useful}
+            for item in body.items
+        ]
+        results = service.feedback_batch_sync(items, caller_id=caller_id)
+        return {
+            "status": "ok",
+            "count": len(results),
+            "results": [
+                {
+                    "trace_id": r.trace_id,
+                    "grain_id": r.grain_id,
+                    "signal": r.effective_signal,
+                }
+                for r in results
+            ],
+        }
 
     @app.get("/health")
     def health():

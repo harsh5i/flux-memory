@@ -37,6 +37,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .alerts import maybe_send_warning_alert
 from .config import Config, DEFAULT_CONFIG
 from .graph import new_id, utcnow
 from .storage import FluxStore
@@ -924,13 +925,19 @@ def _upsert_warning(
     healthy_range: str,
     suggestion: str,
     now: datetime,
-) -> None:
+) -> str:
+    """Insert or refresh a warning row.
+
+    Returns the transition: "new" (first time this signal warned), "refired"
+    (was cleared, unhealthy again), or "ongoing" (was already active).
+    """
     existing = store.conn.execute(
-        "SELECT id FROM warnings WHERE signal = ?",
+        "SELECT id, cleared_at FROM warnings WHERE signal = ?",
         (signal,),
     ).fetchone()
     ts = now.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
     if existing:
+        transition = "refired" if existing["cleared_at"] is not None else "ongoing"
         store.conn.execute(
             """
             UPDATE warnings
@@ -941,6 +948,7 @@ def _upsert_warning(
             (value, severity, healthy_range, ts, suggestion, existing["id"]),
         )
     else:
+        transition = "new"
         store.conn.execute(
             """
             INSERT INTO warnings (id, signal, severity, current_value, healthy_range,
@@ -949,6 +957,7 @@ def _upsert_warning(
             """,
             (new_id(), signal, severity, value, healthy_range, ts, ts, suggestion),
         )
+    return transition
 
 
 def _clear_warning(store: FluxStore, signal: str, now: datetime) -> None:
@@ -1031,13 +1040,26 @@ def flux_health(
 
         spec = _HEALTHY_RANGES.get(name, {})
         if not healthy and not _in_warmup(name, store, now):
-            _upsert_warning(
+            severity = spec.get("severity", "WARNING")
+            healthy_range = _healthy_range_str(name)
+            suggestion = spec.get("suggestion", "")
+            transition = _upsert_warning(
                 store,
                 signal=name,
                 value=value,
-                severity=spec.get("severity", "WARNING"),
-                healthy_range=_healthy_range_str(name),
-                suggestion=spec.get("suggestion", ""),
+                severity=severity,
+                healthy_range=healthy_range,
+                suggestion=suggestion,
+                now=now,
+            )
+            maybe_send_warning_alert(
+                store, cfg,
+                signal=name,
+                severity=severity,
+                value=value,
+                healthy_range=healthy_range,
+                suggestion=suggestion,
+                transition=transition,
                 now=now,
             )
         else:

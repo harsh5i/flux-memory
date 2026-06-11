@@ -48,5 +48,5 @@ def test_dashboard_renders_caller_feedback_breakdown() -> None:
     html = dashboard._DASHBOARD_HTML
 
     assert "caller_feedback" in html
-    assert "Caller Compliance" in html
+    assert "caller-compliance" in html
     assert "caller-row" in html

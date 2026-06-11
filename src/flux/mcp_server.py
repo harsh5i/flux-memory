@@ -22,7 +22,7 @@ from .config import Config, DEFAULT_CONFIG
 from .embedding import EmbeddingBackend
 from .health import compose_caller_id, flux_health
 from .llm import LLMBackend
-from .retrieval import flux_feedback, flux_retrieve, flux_store
+from .retrieval import flux_feedback, flux_retrieve, flux_store, flux_store_ex
 from .storage import FluxStore
 
 logger = logging.getLogger(__name__)
@@ -330,17 +330,17 @@ def _dispatch(
 
     if name == "flux_store":
         if service is not None:
-            grain_id = service.store(
+            grain_id, status = service.store_ex(
                 args["content"], args.get("provenance", "ai_stated"),
                 caller_id=caller_id,
             )
         else:
-            grain_id = flux_store(
+            grain_id, status = flux_store_ex(
                 args["content"], args.get("provenance", "ai_stated"),
                 store=store, llm=llm, emb=emb, cfg=cfg,
                 caller_id=caller_id,
             )
-        return {"grain_id": grain_id, "status": "stored"}
+        return {"grain_id": grain_id, "status": status}
 
     if name == "flux_retrieve":
         if service is not None:
@@ -366,9 +366,9 @@ def _dispatch(
 
     if name == "flux_feedback":
         if service is not None:
-            service.feedback(args["trace_id"], args["grain_id"], args["useful"],
+            result = service.feedback_sync(args["trace_id"], args["grain_id"], args["useful"],
                              caller_id=caller_id)
-            return {"status": "queued"}
+            return {"trace_id": result.trace_id, "grain_id": result.grain_id, "action": result.action, "effective_signal": result.effective_signal}
         result = flux_feedback(
             args["trace_id"], args["grain_id"], args["useful"],
             store=store, cfg=cfg,

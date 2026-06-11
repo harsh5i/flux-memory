@@ -71,7 +71,7 @@ class TestStoreEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert "grain_id" in body
-        assert body["status"] == "stored"
+        assert body["status"] == "stored_wired"
 
     def test_store_with_provenance(self, client):
         resp = client.post("/store", json={
@@ -179,7 +179,7 @@ class TestFeedbackEndpoint:
                 "useful": True,
             })
             assert resp.status_code == 200
-            assert resp.json()["status"] == "queued"
+            assert resp.json()["status"] == "ok"
 
     def test_feedback_missing_fields_422(self, client):
         resp = client.post("/feedback", json={"trace_id": "x"})

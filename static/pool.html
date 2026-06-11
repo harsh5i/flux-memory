@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flux Memory — Reflecting Pool</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; width: 100%; overflow: hidden; background: #01030a; font-family: 'IBM Plex Mono', monospace; color: #c7d2dc; }
+.shell { position: fixed; inset: 0; }
+#c { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* ── slim family tab bar ─────────────────────────────────────────── */
+.topbar {
+  position: absolute; top: 0; left: 0; right: 0; height: 44px;
+  display: flex; align-items: center; padding: 0 18px; gap: 2px;
+  background: linear-gradient(to bottom, rgba(2,6,14,0.82), rgba(2,6,14,0));
+  z-index: 20; pointer-events: none;
+}
+.topbar > * { pointer-events: auto; }
+.brand { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: rgba(150,180,210,0.6); margin-right: 22px; white-space: nowrap; }
+.brand em { font-style: normal; opacity: .4; }
+.tab { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: rgba(150,180,210,0.28); text-decoration: none; padding: 5px 9px; border-bottom: 1px solid transparent; transition: color .2s, border-color .2s; white-space: nowrap; }
+.tab:hover { color: rgba(180,205,225,0.7); }
+.tab.active { color: #8fd4ff; border-bottom-color: rgba(143,212,255,0.6); }
+.topbar-r { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+.live { display: flex; align-items: center; gap: 7px; font-size: 9px; letter-spacing: .12em; color: rgba(150,180,210,0.4); text-transform: uppercase; }
+.live-dot { width: 5px; height: 5px; border-radius: 50%; background: #8fd4ff; box-shadow: 0 0 8px #8fd4ff; animation: blink 3s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.18} }
+.evc { font-size: 9px; letter-spacing: .08em; color: rgba(150,180,210,0.32); min-width: 92px; text-align: right; }
+
+/* ── ambient chrome ─────────────────────────────────────────────── */
+.chrome { position: absolute; inset: 0; pointer-events: none; z-index: 12; }
+.chrome > * { pointer-events: auto; }
+
+.title-tag { position: absolute; top: 56px; left: 20px; font-size: 8px; letter-spacing: .3em; text-transform: uppercase; color: rgba(150,180,210,0.3); }
+.cycle { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 9px; font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: rgba(150,180,210,0.32); }
+.cycle-bar { width: 78px; height: 1px; background: rgba(150,180,210,0.16); position: relative; overflow: hidden; }
+.cycle-fill { position: absolute; top: 0; left: 0; height: 100%; width: 26px; background: linear-gradient(90deg, transparent, #8fd4ff, transparent); }
+
+.signals { position: absolute; bottom: 20px; left: 20px; display: flex; flex-direction: column; gap: 4px; max-width: 340px; pointer-events: none; }
+.sig { display: grid; grid-template-columns: 7px 64px 1fr auto; align-items: center; gap: 9px; padding: 5px 10px; background: rgba(3,9,18,0.6); border-left: 1px solid rgba(150,180,210,0.22); font-size: 9px; letter-spacing: .04em; color: rgba(190,210,225,0.62); backdrop-filter: blur(4px); animation: sin .35s ease forwards; opacity: 0; }
+@keyframes sin { from{opacity:0;transform:translateX(-7px)} to{opacity:1;transform:none} }
+.sig .d { width: 6px; height: 6px; border-radius: 50%; }
+.sig .t { letter-spacing: .14em; text-transform: uppercase; font-size: 8px; }
+.sig .x { color: rgba(190,210,225,0.4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sig .ts { color: rgba(190,210,225,0.18); font-size: 8px; }
+
+.legend { position: absolute; bottom: 20px; right: 20px; background: rgba(3,9,18,0.55); padding: 11px 14px; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; color: rgba(190,210,225,0.42); display: flex; flex-direction: column; gap: 5px; pointer-events: none; backdrop-filter: blur(5px); border-left: 1px solid rgba(150,180,210,0.14); }
+.legend .lh { font-size: 7px; opacity: .6; margin-top: 5px; }
+.legend .lh:first-child { margin-top: 0; }
+.legend .lr { display: grid; grid-template-columns: 8px 1fr; gap: 8px; align-items: center; }
+.legend .ld { width: 7px; height: 7px; border-radius: 50%; }
+
+.tip { position: absolute; pointer-events: none; max-width: 230px; padding: 9px 12px; background: rgba(3,9,16,0.92); border-left: 1px solid rgba(143,212,255,0.55); font-size: 10px; line-height: 1.5; color: #dceaf4; opacity: 0; transition: opacity .14s; backdrop-filter: blur(6px); z-index: 14; }
+.tip.show { opacity: 1; }
+.tip .h { font-size: 8px; letter-spacing: .15em; text-transform: uppercase; color: rgba(190,210,225,0.55); display: block; margin-bottom: 4px; }
+.hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 8px; letter-spacing: .26em; text-transform: uppercase; color: rgba(150,180,210,0.2); pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <canvas id="c"></canvas>
+  <div class="topbar">
+    <span class="brand">flux/<em>memory</em></span>
+    <a class="tab" href="/">Graph</a>
+    <a class="tab" href="/mycelium">Mycelium</a>
+    <a class="tab" href="/globe">Globe</a>
+    <a class="tab active" href="/pool">Pool</a>
+    <a class="tab" href="/nebula">Nebula</a>
+    <div class="topbar-r">
+      <div class="live"><div class="live-dot"></div>live</div>
+      <div class="evc" id="evc">0 activations</div>
+    </div>
+  </div>
+  <div class="chrome">
+    <div class="title-tag">reflecting pool</div>
+    <div class="cycle"><span id="cycle-label">consolidation</span><div class="cycle-bar"><div class="cycle-fill" id="cycle-fill"></div></div></div>
+    <div class="signals" id="signals"></div>
+    <div class="legend">
+      <div class="lh">Signal</div>
+      <div class="lr"><div class="ld" style="background:#5fd7ff"></div>retrieve · ripple</div>
+      <div class="lr"><div class="ld" style="background:#ffcf6a"></div>store · raindrop</div>
+      <div class="lr"><div class="ld" style="background:#6ad296"></div>feedback · pulse</div>
+      <div class="lr"><div class="ld" style="background:#b48aff"></div>decay · sinking</div>
+      <div class="lh">Depth = age</div>
+      <div class="lr"><div class="ld" style="background:#eef4fa"></div>near surface · fresh</div>
+      <div class="lr"><div class="ld" style="background:#3a5070"></div>deep · dormant</div>
+    </div>
+    <div class="hint">hover the water</div>
+    <div class="tip" id="tip"></div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════
+//  FLUX MEMORY · REFLECTING POOL
+//  Top-down dark water. Memories are points of light suspended beneath the
+//  surface; depth encodes age. Retrieval ripples the surface and lifts a
+//  light; a store lands as a raindrop; decay sinks a light into the silt.
+//  The whole pool breathes on the consolidation cycle.
+//
+//  API:  window.fluxPool.activate(type, ids, holdMs)
+// ════════════════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+let W = 0, H = 0;
+
+function resize(){
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W*DPR; canvas.height = H*DPR;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  build();
+}
+
+const SIG_COL = { retrieve:[95,215,255], store:[255,207,106], feedback:[106,210,150], decay:[180,138,255] };
+const PROV = {
+  user:     [238, 244, 250],   // user-stated — bright white
+  ai:       [127, 184, 255],   // ai-stated — blue
+  inferred: [180, 138, 255],   // ai-inferred — violet
+  external: [150, 200, 190],   // external — pale teal
+};
+const PROV_KEYS = ['user','ai','inferred','external'];
+const DOMAINS = ['trading.strategies','self.reflection','tech.insight','preferences','conversations','external.refs','patterns'];
+const SAMPLE = [
+  ['MA cross fades in chop','stop at 1.5× ATR','volume divergence > price','options skew asymmetric'],
+  ['I over-explain in tutorials','self-doubt loop after correction','pattern: nuance > brevity','apologise too early'],
+  ['HNSW > IVF for recall','tsvector + GIN for FTS','token bucket beats fixed window','curl-noise for organic drift'],
+  ['dark mode after sunset','no mushrooms','standup at 09:30 PT','avoid mtgs after 4pm'],
+  ['daughter named Iris','resumed: pricing model v3','last asked: quaternions','re: misclassification'],
+  ['arxiv 2310.06825','NeurIPS 2024','Stripe docs · webhooks','RFC 9110'],
+  ['simpler model → fewer surprises','never trust unverified URLs','3 warnings → escalate','cache invalidate on schema'],
+];
+
+function rng(seed){ let s=seed>>>0; return ()=>{ s=Math.imul(s,1664525)+1013904223|0; return (s>>>0)/0xffffffff; }; }
+
+// ── State ────────────────────────────────────────────────────────────────
+let POOL = null;
+let tick = 0;
+let breath = 0;
+let mouse = { x:-9999, y:-9999 };
+let hovered = null;
+let activations = 0;
+const ripples = [];
+const splashes = [];
+const motes = [];   // tiny drifting surface sparkles
+const caustics = []; // drifting light patches that dance on the water
+const assoc = [];    // association "currents" linking correlated memories
+
+function build(){
+  const r = rng(23);
+  const mems = [];
+  // Domain anchor regions spread across the pool (avoiding the very edges)
+  const domainCenters = DOMAINS.map((_,i)=>{
+    const a = (i/DOMAINS.length)*Math.PI*2 + 0.6;
+    const rad = 0.20 + r()*0.16;
+    return { x: W*(0.5 + Math.cos(a)*rad*1.5), y: H*(0.52 + Math.sin(a)*rad) };
+  });
+
+  const COUNT = Math.round(Math.min(180, Math.max(90, (W*H)/9000)));
+  for (let i=0;i<COUNT;i++){
+    const dom = i % DOMAINS.length;
+    const c = domainCenters[dom];
+    // gaussian-ish scatter around the domain center
+    const ang = r()*Math.PI*2;
+    const dist = (r()+r()+r())/3 * Math.min(W,H)*0.20;
+    const x = c.x + Math.cos(ang)*dist*1.5;
+    const y = c.y + Math.sin(ang)*dist;
+    const prov = PROV_KEYS[Math.floor(r()*PROV_KEYS.length)];
+    mems.push({
+      id: i,
+      ax: Math.max(20, Math.min(W-20, x)),   // anchor
+      ay: Math.max(70, Math.min(H-20, y)),
+      x:0, y:0,
+      z: 0.18 + r()*0.7,           // depth 0(surface)..1(deep)
+      tz: 0.18 + r()*0.7,          // target depth
+      prov, col: PROV[prov], dom,
+      base: 0.55 + r()*0.4,        // intrinsic brightness
+      glow: 0,                     // activation flare 0..1
+      phase: r()*Math.PI*2,
+      orbR: 4 + r()*10, orbS: (r()*0.4+0.2)*(r()<0.5?-1:1),
+      content: SAMPLE[dom][Math.floor(r()*SAMPLE[dom].length)],
+    });
+  }
+
+  // ── correlation links: mostly intra-domain neighbours + a few long-range
+  //    cross-domain associations (the interesting ones)
+  for (const m of mems){
+    const others = mems.filter(o=>o!==m)
+      .map(o=>({ o, d: Math.hypot(o.ax-m.ax, o.ay-m.ay), same: o.dom===m.dom }))
+      .sort((a,b)=> (a.same===b.same ? a.d-b.d : (a.same? -1 : 1)));
+    m.links = others.slice(0, 2 + Math.floor(r()*2)).map(e=>e.o.id);
+    if (r() < 0.28){ const far = mems[Math.floor(r()*mems.length)]; if (far!==m) m.links.push(far.id); }
+  }
+
+  // surface sparkle motes
+  motes.length = 0;
+  for (let i=0;i<70;i++){
+    motes.push({ x:r()*W, y:r()*H, p:r()*Math.PI*2, sp:0.4+r()*0.8, r:0.4+r()*0.8 });
+  }
+  // caustic light patches drifting slowly
+  caustics.length = 0;
+  for (let i=0;i<10;i++){
+    caustics.push({ x:r()*W, y:r()*H, vx:(r()-0.5)*0.12, vy:(r()-0.5)*0.1, r:120+r()*220, p:r()*Math.PI*2 });
+  }
+
+  POOL = { mems, domainCenters };
+}
+
+// ── Activation API ─────────────────────────────────────────────────────────
+function activate(type, ids, hold=1600){
+  if (!POOL) return;
+  activations++;
+  document.getElementById('evc').textContent = activations + ' activation' + (activations!==1?'s':'');
+  const col = SIG_COL[type] || [120,200,255];
+
+  ids.forEach((id,i)=>{
+    setTimeout(()=>{
+      let m = POOL.mems[id];
+      if (type === 'store'){
+        // a raindrop lands → bright splash, a fresh light blooms near the surface
+        const tx = m ? m.ax : 40+Math.random()*(W-80);
+        const ty = m ? m.ay : 80+Math.random()*(H-100);
+        splashes.push({ x:tx, y:ty, t:0, col });
+        ripples.push({ x:tx, y:ty, r:2, max:120+Math.random()*60, life:1, col, w:1.6 });
+        if (m){ m.tz = 0.12; m.glow = 1; m.base = Math.min(1, m.base+0.05); }
+      } else if (type === 'decay'){
+        if (m){ m.tz = 0.96; m.glow = 0.7; ripples.push({ x:m.x, y:m.y, r:2, max:70, life:1, col, w:1 }); }
+      } else if (type === 'feedback'){
+        if (m){ m.glow = 1; m.tz = Math.max(0.1, m.tz-0.12); ripples.push({ x:m.x, y:m.y, r:2, max:90, life:1, col, w:1.1 }); associate(m, col); }
+      } else { // retrieve
+        if (m){ m.glow = 1; m.tz = Math.max(0.08, m.tz-0.3); ripples.push({ x:m.x, y:m.y, r:2, max:150+Math.random()*80, life:1, col, w:1.4 });
+                ripples.push({ x:m.x, y:m.y, r:2, max:90, life:1, col, w:1 }); associate(m, col); }
+      }
+      pushSignal(type, col, m);
+    }, i*130);
+  });
+}
+
+function pushSignal(type, col, m){
+  const box = document.getElementById('signals');
+  const row = document.createElement('div'); row.className = 'sig';
+  const now = new Date();
+  const ts = [now.getHours(),now.getMinutes(),now.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
+  const c = `rgb(${col[0]},${col[1]},${col[2]})`;
+  row.innerHTML = `<div class="d" style="background:${c};box-shadow:0 0 6px ${c}"></div>`+
+    `<div class="t" style="color:${c}">${type}</div>`+
+    `<div class="x">${m? m.content : '—'}</div>`+
+    `<div class="ts">${ts}</div>`;
+  box.prepend(row);
+  while (box.children.length > 5) box.removeChild(box.lastChild);
+}
+
+// associative recall: a retrieved memory pulls its correlated grains, lighting
+// them in a short chain and threading a glowing "current" between them.
+function associate(m, col){
+  if (!m.links) return;
+  m.links.forEach((lid, k)=>{
+    const o = POOL.mems[lid]; if (!o) return;
+    setTimeout(()=>{
+      o.glow = Math.max(o.glow, 0.85);
+      o.tz = Math.max(0.1, o.tz - 0.18);
+      assoc.push({ a:m, b:o, t:0, life:1, col });
+      if (assoc.length > 44) assoc.shift();
+    }, 110 + k*110);
+  });
+}
+
+// ── Draw ───────────────────────────────────────────────────────────────────
+function draw(){
+  tick++;
+  breath += 0.006;
+  const bw = (Math.sin(breath)+1)/2;   // 0..1 breathing
+
+  ctx.clearRect(0,0,W,H);
+
+  // 1 ── water base (deep radial well, faintly warmer at center)
+  const base = ctx.createRadialGradient(W*0.5, H*0.54, 20, W*0.5, H*0.54, Math.max(W,H)*0.72);
+  base.addColorStop(0, '#06121f');
+  base.addColorStop(0.45, '#040c17');
+  base.addColorStop(1, '#01040a');
+  ctx.fillStyle = base; ctx.fillRect(0,0,W,H);
+
+  // 2 ── faint reflected starfield wobbling on the surface
+  const sr = rng(91);
+  for (let i=0;i<80;i++){
+    const bx = sr()*W, by = sr()*H;
+    const wob = Math.sin(tick*0.02 + bx*0.01 + by*0.012);
+    const tw = 0.35 + Math.sin(tick*0.03 + i*1.3)*0.4;
+    if (tw < 0.05) continue;
+    ctx.fillStyle = `rgba(150,185,215,${0.05 + tw*0.10})`;
+    ctx.beginPath(); ctx.arc(bx + wob*2, by + Math.cos(tick*0.025+i)*1.5, 0.5+sr()*0.7, 0, Math.PI*2); ctx.fill();
+  }
+
+  // 3 ── drifting caustic light (dancing on water) — additive
+  ctx.globalCompositeOperation = 'lighter';
+  for (const k of caustics){
+    k.x += k.vx + Math.sin(tick*0.01+k.p)*0.15;
+    k.y += k.vy + Math.cos(tick*0.012+k.p)*0.12;
+    if (k.x < -k.r) k.x = W+k.r; if (k.x > W+k.r) k.x = -k.r;
+    if (k.y < -k.r) k.y = H+k.r; if (k.y > H+k.r) k.y = -k.r;
+    const pulse = 0.5 + Math.sin(tick*0.02 + k.p)*0.5;
+    const a = (0.018 + pulse*0.020) * (0.7 + bw*0.5);
+    const g = ctx.createRadialGradient(k.x, k.y, 0, k.x, k.y, k.r);
+    g.addColorStop(0, `rgba(90,150,180,${a})`);
+    g.addColorStop(0.5, `rgba(60,120,150,${a*0.5})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(k.x,k.y,k.r,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  if (POOL){
+    // 4 ── update + draw memories (deep first so shallow ones sit on top)
+    for (const m of POOL.mems){
+      m.z += (m.tz - m.z) * 0.035;
+      // slow natural sinking as memories age
+      m.tz = Math.min(0.96, m.tz + 0.00006);
+      m.glow *= 0.95;
+      // gentle orbital drift around anchor
+      m.x = m.ax + Math.cos(tick*0.008*m.orbS + m.phase) * m.orbR;
+      m.y = m.ay + Math.sin(tick*0.008*m.orbS + m.phase) * m.orbR * 0.7;
+    }
+    const order = POOL.mems.slice().sort((a,b)=> b.z - a.z);
+    ctx.globalCompositeOperation = 'lighter';
+
+    // faint always-on correlation web among the active (shallow) memories,
+    // so the structure is quietly present even at rest
+    ctx.lineWidth = 0.6;
+    for (const m of POOL.mems){
+      if (m.z > 0.6) continue;
+      for (const lid of m.links){
+        const o = POOL.mems[lid];
+        if (!o || o.id < m.id || o.z > 0.6) continue;
+        const fade = (1-m.z)*(1-o.z);
+        ctx.strokeStyle = `rgba(${m.col[0]},${m.col[1]},${m.col[2]},${0.06*fade})`;
+        ctx.beginPath(); ctx.moveTo(m.x,m.y); ctx.lineTo(o.x,o.y); ctx.stroke();
+      }
+    }
+
+    // active association currents (curved, wavering, soft-bloom)
+    for (let i=assoc.length-1;i>=0;i--){
+      const s = assoc[i];
+      s.t += 0.03; s.life -= 0.011;
+      if (s.life <= 0){ assoc.splice(i,1); continue; }
+      const ax=s.a.x, ay=s.a.y, bx=s.b.x, by=s.b.y;
+      const dx=bx-ax, dy=by-ay, l=Math.hypot(dx,dy)||1;
+      const bow = Math.min(70, l*0.28);
+      const wob = Math.sin(tick*0.05 + s.a.phase)*0.7;
+      const cxp=(ax+bx)/2 + (-dy/l)*bow*wob;
+      const cyp=(ay+by)/2 + (dx/l)*bow*wob;
+      const prog = Math.min(1, s.t);
+      ctx.shadowColor = `rgba(${s.col[0]},${s.col[1]},${s.col[2]},0.85)`;
+      ctx.shadowBlur = 9;
+      ctx.strokeStyle = `rgba(${s.col[0]},${s.col[1]},${s.col[2]},${0.42*s.life})`;
+      ctx.lineWidth = 1.25; ctx.lineCap='round';
+      ctx.beginPath();
+      const steps = 13;
+      for (let k=0;k<=steps;k++){
+        const t = k/steps; if (t > prog) break;
+        const xx=(1-t)*(1-t)*ax + 2*(1-t)*t*cxp + t*t*bx;
+        const yy=(1-t)*(1-t)*ay + 2*(1-t)*t*cyp + t*t*by;
+        if (k===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    for (const m of order){
+      const z = m.z;
+      const shallow = 1 - z;                 // 1 at surface
+      const flick = 0.85 + Math.sin(tick*0.05 + m.phase)*0.12;
+      const lum = (m.base * (0.25 + shallow*0.85) * flick + m.glow*0.9) * (0.7 + bw*0.45);
+      const col = m.col;
+      const haloR = 6 + z*26 + m.glow*22;    // deeper = more diffuse
+      const a = Math.max(0, Math.min(1, lum));
+      // diffuse halo (the light seen through water)
+      const g = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, haloR);
+      g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${0.32*a})`);
+      g.addColorStop(0.4, `rgba(${col[0]},${col[1]},${col[2]},${0.10*a})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(m.x,m.y,haloR,0,Math.PI*2); ctx.fill();
+      // tight core only when shallow (sharp near the surface)
+      if (shallow > 0.35 || m.glow > 0.1){
+        const coreR = (0.8 + shallow*1.8 + m.glow*2.2);
+        const cg = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, coreR*2.2);
+        cg.addColorStop(0, `rgba(255,255,255,${Math.min(1,(0.5*shallow + m.glow)*a*1.4)})`);
+        cg.addColorStop(0.5, `rgba(${col[0]},${col[1]},${col[2]},${0.6*a})`);
+        cg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(m.x,m.y,coreR*2.2,0,Math.PI*2); ctx.fill();
+      }
+      // hover ring
+      if (hovered === m){
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.7)`;
+        ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(m.x,m.y,haloR*0.6+5,0,Math.PI*2); ctx.stroke();
+        ctx.globalCompositeOperation = 'lighter';
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // 5 ── surface sparkle motes (tiny bright glints riding the surface)
+  ctx.globalCompositeOperation = 'lighter';
+  for (const mo of motes){
+    mo.x += Math.cos(mo.p)*0.12*mo.sp; mo.y += Math.sin(mo.p)*0.1*mo.sp;
+    mo.p += 0.004;
+    if (mo.x<0)mo.x+=W; if(mo.x>W)mo.x-=W; if(mo.y<0)mo.y+=H; if(mo.y>H)mo.y-=H;
+    const tw = Math.sin(tick*0.08 + mo.x*0.05);
+    if (tw < 0.4) continue;
+    ctx.fillStyle = `rgba(200,225,245,${(tw-0.4)*0.5})`;
+    ctx.beginPath(); ctx.arc(mo.x, mo.y, mo.r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // 6 ── ripples (expanding refraction rings)
+  for (let i=ripples.length-1;i>=0;i--){
+    const rp = ripples[i];
+    rp.r += (rp.max - rp.r) * 0.035 + 0.6;
+    rp.life -= 0.012;
+    if (rp.life <= 0 || rp.r >= rp.max-1){ ripples.splice(i,1); continue; }
+    const a = rp.life;
+    const col = rp.col;
+    ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${0.34*a})`;
+    ctx.lineWidth = rp.w; ctx.beginPath(); ctx.arc(rp.x,rp.y,rp.r,0,Math.PI*2); ctx.stroke();
+    // faint inner refraction ring
+    ctx.strokeStyle = `rgba(220,240,255,${0.10*a})`;
+    ctx.lineWidth = rp.w*0.6; ctx.beginPath(); ctx.arc(rp.x,rp.y,rp.r*0.82,0,Math.PI*2); ctx.stroke();
+  }
+
+  // 7 ── splashes (raindrop impact)
+  for (let i=splashes.length-1;i>=0;i--){
+    const s = splashes[i]; s.t += 0.05;
+    if (s.t >= 1){ splashes.splice(i,1); continue; }
+    const a = 1 - s.t;
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 14*(0.4+s.t));
+    g.addColorStop(0, `rgba(255,255,255,${0.9*a})`);
+    g.addColorStop(0.4, `rgba(${s.col[0]},${s.col[1]},${s.col[2]},${0.6*a})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(s.x,s.y,14*(0.4+s.t),0,Math.PI*2); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // 8 ── vignette
+  const vg = ctx.createRadialGradient(W*0.5,H*0.5,Math.min(W,H)*0.35,W*0.5,H*0.5,Math.max(W,H)*0.72);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,2,6,0.6)');
+  ctx.fillStyle = vg; ctx.fillRect(0,0,W,H);
+
+  // cycle indicator
+  const cf = document.getElementById('cycle-fill');
+  if (cf){ cf.style.transform = `translateX(${bw*52}px)`;
+    document.getElementById('cycle-label').textContent = Math.sin(breath) > 0 ? 'consolidation' : 'settling'; }
+
+  requestAnimationFrame(draw);
+}
+
+// ── Hover ──────────────────────────────────────────────────────────────────
+canvas.addEventListener('mousemove', e=>{
+  mouse.x = e.clientX; mouse.y = e.clientY;
+  if (!POOL) return;
+  let best=null, bd=26;
+  for (const m of POOL.mems){
+    const d = Math.hypot(m.x-mouse.x, m.y-mouse.y);
+    const rr = 8 + (1-m.z)*10;
+    if (d < Math.max(rr,16) && d < bd){ bd=d; best=m; }
+  }
+  hovered = best;
+  const tip = document.getElementById('tip');
+  if (best){
+    const provLabel = {user:'user-stated',ai:'ai-stated',inferred:'ai-inferred',external:'external'}[best.prov];
+    tip.innerHTML = `<span class="h" style="color:rgb(${best.col[0]},${best.col[1]},${best.col[2]})">${DOMAINS[best.dom]} · ${provLabel}</span>${best.content}<br><span style="color:rgba(150,185,215,.45);font-size:8px">depth ${(best.z).toFixed(2)} · ${best.z>0.7?'dormant':best.z>0.4?'settling':'active'}</span>`;
+    tip.style.left = Math.min(W-240, mouse.x+16)+'px';
+    tip.style.top = Math.max(60, mouse.y-12)+'px';
+    tip.classList.add('show');
+    canvas.style.cursor = 'pointer';
+  } else { tip.classList.remove('show'); canvas.style.cursor = 'default'; }
+});
+canvas.addEventListener('mouseleave', ()=>{ hovered=null; document.getElementById('tip').classList.remove('show'); });
+// click to retrieve a memory
+canvas.addEventListener('click', ()=>{ if (hovered) activate('retrieve', [hovered.id]); });
+
+// ── Ambient driver ─────────────────────────────────────────────────────────
+function pick(n){ const out=[]; for(let i=0;i<n;i++) out.push(Math.floor(Math.random()*POOL.mems.length)); return out; }
+function tickDriver(){
+  if (POOL){
+    const roll = Math.random();
+    const type = roll<0.5 ? 'retrieve' : roll<0.72 ? 'feedback' : roll<0.9 ? 'store' : 'decay';
+    const n = type==='retrieve' ? 1+Math.floor(Math.random()*3) : 1+Math.floor(Math.random()*2);
+    activate(type, pick(n));
+  }
+  setTimeout(tickDriver, 900 + Math.random()*1600);
+}
+
+window.fluxPool = { activate };
+
+// ── REAL DATA OVERLAY ────────────────────────────────────────────────────────
+// Preserves the build() aesthetic exactly. Only replaces synthetic per-mote
+// content/id with real Flux grain labels + ids, and drives activations from
+// real /api/events instead of tickDriver.
+const PROV_MAP = { user_stated:'user', ai_stated:'ai', ai_inferred:'inferred', external_source:'external' };
+let POOL_GRAINS = null;
+const RID_TO_IDX = new Map();
+let lastEventTs = null;
+
+async function fetchGraph(){
+  try {
+    const data = await fetch('/api/graph').then(r => r.json());
+    POOL_GRAINS = (data.nodes || []).filter(n => n.node_type === 'grain' && n.status === 'active');
+    // Deterministic shuffle so the slot assignment is stable across resizes
+    const rs = (s => () => { s = (Math.imul(s,1664525)+1013904223)|0; return ((s>>>0)/0xffffffff); })(7919);
+    POOL_GRAINS.sort(() => rs() - 0.5);
+  } catch(e) { POOL_GRAINS = []; }
+}
+
+function applyRealData(){
+  if (!POOL || !POOL_GRAINS || POOL_GRAINS.length === 0) return;
+  RID_TO_IDX.clear();
+  POOL.mems.forEach((m, i) => {
+    const g = POOL_GRAINS[i % POOL_GRAINS.length];
+    if (!g) return;
+    m.rid = g.id;
+    m.content = g.label || m.content;
+    RID_TO_IDX.set(g.id, i);
+  });
+}
+
+async function pollEvents(){
+  if (!POOL || RID_TO_IDX.size === 0) return;
+  try {
+    const data = await fetch('/api/events?limit=50').then(r => r.json());
+    const events = (data.events || []).slice().reverse();
+    for (const ev of events) {
+      if (lastEventTs && ev.timestamp <= lastEventTs) continue;
+      lastEventTs = ev.timestamp;
+      handleEvent(ev);
+    }
+  } catch(e) {}
+}
+
+function handleEvent(ev){
+  const d = ev.data || {};
+  const gIdx = rid => RID_TO_IDX.has(rid) ? RID_TO_IDX.get(rid) : null;
+  let type = null, ids = [];
+  if (ev.category === 'retrieval' && ev.event === 'grains_returned') {
+    type = 'retrieve';
+    const list = d.grain_ids || [];
+    ids = list.map(gIdx).filter(i => i !== null);
+  } else if (ev.category === 'write' && ev.event === 'grain_stored') {
+    type = 'store';
+    if (d.grain_id) { const i = gIdx(d.grain_id); if (i !== null) ids = [i]; }
+  } else if (ev.event === 'feedback_received') {
+    type = 'feedback';
+    const i = gIdx(d.grain_id); if (i !== null) ids = [i];
+  } else if (ev.event === 'conduit_reinforced') {
+    type = 'feedback';
+    [d.from_id, d.to_id].forEach(rid => { const i = gIdx(rid); if (i !== null) ids.push(i); });
+  } else if (ev.event === 'grain_decayed' || ev.event === 'grain_expired') {
+    type = 'decay';
+    const i = gIdx(d.grain_id); if (i !== null) ids = [i];
+  }
+  if (type && ids.length > 0) activate(type, ids);
+}
+
+window.addEventListener('resize', () => { resize(); applyRealData(); });
+resize();
+draw();
+
+(async () => {
+  await fetchGraph();
+  applyRealData();
+  lastEventTs = new Date().toISOString();
+  setInterval(pollEvents, 2000);
+  setInterval(async () => { await fetchGraph(); applyRealData(); }, 60000);
+})();
+</script>
+</body>
+</html>

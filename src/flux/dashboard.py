@@ -498,6 +498,8 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
         <a href="/" class="flux-nav-item active">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
         <a href="/mycelium" class="flux-nav-item">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
         <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
+        <a href="/pool" class="flux-nav-item">Pool<span class="flux-nav-item-sub">reflecting pool visualization</span></a>
+        <a href="/nebula" class="flux-nav-item">Nebula<span class="flux-nav-item-sub">breathing 3D cloud</span></a>
       </div>
     </div>
     <div id="status-badge" class="badge-warning">
@@ -710,17 +712,43 @@ function showLoadError(message) {
   document.getElementById('health-table').textContent = 'No health data available.';
 }
 
+// Refresh button is a single-shot manual fetch — no auto-polling, no event-triggered refresh.
+// Daisy-chained renderGraph() on every grain_stored "shakes the whole graph"; user explicitly asked for click-only.
 function toggleAutoRefresh() {
-  isAutoRefresh = !isAutoRefresh;
   const btn = document.getElementById('autorefresh-btn');
   const lbl = document.getElementById('refresh-interval');
-  btn.classList.toggle('active', isAutoRefresh);
-  lbl.style.display = isAutoRefresh ? '' : 'none';
-  if (isAutoRefresh) {
-    autoRefreshTimer = setInterval(() => { fetchAll(); }, 30000);
-  } else {
-    clearInterval(autoRefreshTimer);
+  if (lbl) lbl.style.display = 'none';
+  if (btn) {
+    if (btn.classList.contains('spinning')) return;
+    btn.classList.add('spinning');
+    setTimeout(() => btn.classList.remove('spinning'), 700);
   }
+  fetchAll().catch(err => console.warn('Manual refresh failed', err));
+}
+
+// Pop-in for a single new grain: fetch graph data, then make the new node briefly pulse so it's visible.
+// Debounced so a burst of grain_stored events resolves to one fetch.
+const _pendingPopIns = new Set();
+let _popInTimer = null;
+function schedulePopInGrain(rid) {
+  _pendingPopIns.add(rid);
+  if (_popInTimer) return;
+  _popInTimer = setTimeout(async () => {
+    _popInTimer = null;
+    const ids = Array.from(_pendingPopIns);
+    _pendingPopIns.clear();
+    try {
+      await fetchAll();
+      // After re-render, find each new node and pulse it so it visibly arrives.
+      const now = performance.now();
+      for (const rid of ids) {
+        const node = canvasNodes.find(n => n.id === rid);
+        if (node) {
+          activityNodePulses.set(node.id, { until: now + 1400, duration: 1400, color: '#a78bfa' });
+        }
+      }
+    } catch (err) { console.warn('Pop-in refresh failed', err); }
+  }, 700);
 }
 
 // ── HEALTH RENDER ─────────────────────────────────────────────────────────────
@@ -1203,8 +1231,11 @@ function handleFluxEvent(ev) {
     if (activated || ev.category !== 'system') draw();
   }
 
-  if (isGraphRefreshEvent(ev)) {
-    scheduleGraphRefreshAfterEvent();
+  // Auto-refresh on structural events disabled by design — graph refreshes only on (a)
+  // explicit click of the refresh button, or (b) the pop-in path below for new grains.
+  // Re-running renderGraph() on every grain_stored "shakes the whole graph" and isn't worth it.
+  if (ev.event === 'grain_stored' && ev.data && ev.data.grain_id) {
+    schedulePopInGrain(ev.data.grain_id);
   }
 }
 
@@ -1308,7 +1339,8 @@ function renderGraph() {
   canvas = document.getElementById('graph-canvas');
   canvasCssWidth = W;
   canvasCssHeight = H;
-  canvasDpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+  // Cap DPR aggressively on mobile — iPhones report 3.0, which means rendering 9× the pixels per CSS px. Huge perf win.
+  canvasDpr = Math.max(1, Math.min(window.devicePixelRatio || 1, IS_MOBILE ? 1.5 : 3));
   canvas.width = Math.max(1, Math.floor(W * canvasDpr));
   canvas.height = Math.max(1, Math.floor(H * canvasDpr));
   canvas.style.width = W + 'px';
@@ -1350,7 +1382,7 @@ function renderGraph() {
     .alphaDecay(0.015).alphaMin(0.001).alphaTarget(0.004)
     .on('tick', draw);
 
-  // Gentle nudge every 5s
+  // Gentle nudge — 5s on desktop, 15s on mobile (cuts wake-ups by 3×)
   nudgeTimer = setInterval(() => {
     if (simulation && !simulationPaused) {
       canvasNodes.forEach(n => {
@@ -1359,12 +1391,13 @@ function renderGraph() {
       });
       simulation.alphaTarget(0.004).restart();
     }
-  }, 5000);
+  }, IS_MOBILE ? 15000 : 5000);
 
-  // Dash animation rAF
+  // Dash animation rAF — frame-rate cap is enforced inside draw(); slow dashOffset on mobile so it doesn't double-speed
+  const dashStep = IS_MOBILE ? 0.25 : 0.5;
   loop3D = function() {
     animFrame3D = requestAnimationFrame(loop3D);
-    dashOffset -= 0.5;
+    dashOffset -= dashStep;
     draw();
   };
   loop3D();
@@ -1372,13 +1405,23 @@ function renderGraph() {
   if (simulationPaused) { simulation.alphaTarget(0).stop(); }
 }
 
+// Mobile detection — used to lower DPR and cap frame rate so the graph stays smooth on phones.
+const IS_MOBILE = matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 800;
+const MOBILE_FRAME_MIN_MS = 33;  // ~30fps cap on mobile, uncapped on desktop
+let lastDrawMs = 0;
+
 // ── CANVAS DRAW ───────────────────────────────────────────────────────────────
 function draw() {
   if (!ctx || !canvas) return;
   const W = canvasCssWidth || canvas.clientWidth;
   const H = canvasCssHeight || canvas.clientHeight;
   const now = performance.now();
+  // Mobile frame-rate cap: skip frames that would exceed ~30fps. Desktop renders uncapped.
+  if (IS_MOBILE && (now - lastDrawMs) < MOBILE_FRAME_MIN_MS) return;
+  lastDrawMs = now;
   pruneActivity(now);
+  // Spotlight: when any node/edge is currently pulsing, dim everything else so the activation reads.
+  const spotlightActive = activityNodePulses.size > 0 || activityEdgePulses.size > 0 || activityParticles.length > 0;
   ctx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.save();
@@ -1402,8 +1445,15 @@ function draw() {
     );
 
     const pulse = getEdgePulse(l, now);
+    const isPulseNeighbor = !pulse && (
+      activityNodePulses.has(l.source?.id) || activityNodePulses.has(l.target?.id)
+    );
     const w = edgeWidth(l);
     let alpha = isDimmed ? 0.035 : (isSelected||isHovered||isSearchMatch||pulse) ? 1 : edgeAlpha(l);
+    // Spotlight dim: when any pulse is happening, fade non-active edges (but keep edges touching pulsing nodes a bit brighter)
+    if (spotlightActive && !pulse && !isSelected && !isHovered && !isSearchMatch && !isDimmed) {
+      alpha *= isPulseNeighbor ? 0.45 : 0.12;
+    }
     const stroke = pulse ? pulse.color : (isSelected || isSearchMatch) ? '#22d3ee' : edgeColor(l);
 
     ctx.save();
@@ -1464,7 +1514,16 @@ function draw() {
       (selectedNode && selectedNode !== n && !isNeighbor(selectedNode, n)) || isSearchDimmed
     );
     const pulse = getNodePulse(n, now);
-    const alpha = isDimmed && !pulse ? 0.14 : 1;
+    // Spotlight dim: when something else is pulsing, fade non-pulsing nodes; keep direct neighbors slightly readable.
+    let baseAlpha = isDimmed && !pulse ? 0.14 : 1;
+    if (spotlightActive && !pulse && !isSelected && !isHovered && !isSearchMatch && !isDimmed) {
+      const isNeighborOfPulse = activityNodePulses.size > 0 && canvasLinks.some(l =>
+        (l.source === n && activityNodePulses.has(l.target?.id)) ||
+        (l.target === n && activityNodePulses.has(l.source?.id))
+      );
+      baseAlpha *= isNeighborOfPulse ? 0.55 : 0.18;
+    }
+    const alpha = baseAlpha;
     const dormant = n.status === 'dormant';
 
     ctx.save();
@@ -2082,8 +2141,52 @@ def run_dashboard(
     cfg: Any = None,
 ) -> None:
     """Start the HTTP dashboard server (blocking). Ctrl+C to stop."""
+    import threading as _threading
+    import time as _time
     from .health import flux_health
     from .visualization import cluster_view, export_json
+
+    # Concurrent polls (mobile + laptop + browser) all hit slow endpoints
+    # (flux_health ~10s, cluster_view ~9s) and serialise on store.lock(),
+    # spiking CPU and timing out clients. Per-endpoint TTL cache + single-flight
+    # so only one thread computes per key; concurrent pollers share the result.
+    _cache: dict[str, tuple[float, bytes]] = {}
+    _cache_lock = _threading.Lock()
+    _inflight_locks: dict[str, _threading.Lock] = {}
+    _inflight_master = _threading.Lock()
+    _CACHE_TTL: dict[str, float] = {
+        "/api/health": 5.0,
+        "/api/events": 3.0,
+        "/api/graph": 8.0,
+        "/api/clusters": 8.0,
+    }
+
+    def _get_inflight_lock(key: str) -> _threading.Lock:
+        with _inflight_master:
+            lock = _inflight_locks.get(key)
+            if lock is None:
+                lock = _threading.Lock()
+                _inflight_locks[key] = lock
+            return lock
+
+    def _cached_json(key: str, compute) -> bytes:
+        ttl = _CACHE_TTL.get(key, 0.0)
+        now = _time.monotonic()
+        with _cache_lock:
+            entry = _cache.get(key)
+            if entry and (now - entry[0]) < ttl:
+                return entry[1]
+        # Single-flight: only one thread per key actually computes.
+        with _get_inflight_lock(key):
+            now = _time.monotonic()
+            with _cache_lock:
+                entry = _cache.get(key)
+                if entry and (now - entry[0]) < ttl:
+                    return entry[1]
+            body = json.dumps(compute(), default=str).encode()
+            with _cache_lock:
+                _cache[key] = (_time.monotonic(), body)
+            return body
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -2098,21 +2201,32 @@ def run_dashboard(
                 self._send(200, "text/html; charset=utf-8", _load_view("mycelium.html"))
             elif path == "/globe":
                 self._send(200, "text/html; charset=utf-8", _load_view("globe.html"))
+            elif path == "/pool":
+                self._send(200, "text/html; charset=utf-8", _load_view("pool.html"))
+            elif path == "/nebula":
+                self._send(200, "text/html; charset=utf-8", _load_view("nebula.html"))
             elif path == "/mobile-preview":
                 self._send(200, "text/html; charset=utf-8", _MOBILE_PREVIEW_HTML.encode())
             elif path == "/api/health":
-                data = flux_health(store, cfg) if cfg else flux_health(store)
-                self._send(200, "application/json", json.dumps(data, default=str).encode())
+                def _compute():
+                    with store.lock():
+                        return flux_health(store, cfg) if cfg else flux_health(store)
+                self._send(200, "application/json", _cached_json("/api/health", _compute))
             elif path == "/api/graph":
-                data = export_json(store)
-                self._send(200, "application/json", json.dumps(data, default=str).encode())
+                def _compute():
+                    with store.lock():
+                        return export_json(store)
+                self._send(200, "application/json", _cached_json("/api/graph", _compute))
             elif path == "/api/clusters":
-                data = cluster_view(store)
-                self._send(200, "application/json", json.dumps(data, default=str).encode())
+                def _compute():
+                    with store.lock():
+                        return cluster_view(store)
+                self._send(200, "application/json", _cached_json("/api/clusters", _compute))
             elif path == "/api/trace":
                 query = parse_qs(parsed.query)
                 trace_id = query.get("trace_id", [""])[0]
-                data = _trace_details(store, trace_id=trace_id)
+                with store.lock():
+                    data = _trace_details(store, trace_id=trace_id)
                 self._send(200, "application/json", json.dumps(data, default=str).encode())
             elif path == "/api/events":
                 query = parse_qs(parsed.query)
@@ -2120,8 +2234,12 @@ def run_dashboard(
                     limit = int(query.get("limit", ["25"])[0])
                 except ValueError:
                     limit = 25
-                data = _recent_events(store, limit=limit)
-                self._send(200, "application/json", json.dumps(data, default=str).encode())
+                key = f"/api/events?limit={limit}"
+                _CACHE_TTL.setdefault(key, _CACHE_TTL["/api/events"])
+                def _compute():
+                    with store.lock():
+                        return _recent_events(store, limit=limit)
+                self._send(200, "application/json", _cached_json(key, _compute))
             elif path.startswith("/static/"):
                 static_dir = Path(__file__).resolve().parent.parent.parent / "static"
                 file_name = path[len("/static/"):]
@@ -2141,6 +2259,12 @@ def run_dashboard(
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Access-Control-Allow-Origin", "*")
+            # Disable browser caching for HTML views and JSON responses so dashboard
+            # changes show up immediately without forcing a hard-reload.
+            if content_type.startswith(("text/html", "application/json")):
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
             self.end_headers()
             self.wfile.write(body)
 
