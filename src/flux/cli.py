@@ -793,6 +793,7 @@ Admin Menu:
                     "cfg": cfg,
                     "host": cfg.DASHBOARD_HOST,
                     "port": cfg.DASHBOARD_PORT,
+                    "service": service,
                 },
                 name="flux-dashboard",
                 daemon=True,

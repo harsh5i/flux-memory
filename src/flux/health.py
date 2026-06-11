@@ -44,6 +44,11 @@ from .storage import FluxStore
 
 logger = logging.getLogger(__name__)
 
+# In-process event listeners (e.g. the dashboard SSE stream). Each callable
+# receives the event dict written by log_event. Must never raise into the
+# write path.
+EVENT_LISTENERS: list = []
+
 # ------------------------------------------------------------------- constants
 
 _HEALTHY_RANGES: dict[str, dict] = {
@@ -372,6 +377,19 @@ def log_event(
             json.dumps(payload),
         ),
     )
+    if EVENT_LISTENERS:
+        snapshot = {
+            "timestamp": now.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
+            "category": category,
+            "event": event,
+            "trace_id": trace_id,
+            "data": payload,
+        }
+        for listener in EVENT_LISTENERS:
+            try:
+                listener(snapshot)
+            except Exception:
+                pass
     logger.debug("flux event %s/%s %s", category, event, payload)
 
 

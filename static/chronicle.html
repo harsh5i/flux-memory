@@ -23,7 +23,12 @@ html,body{height:100%;overflow:hidden;background:#000;font-family:'IBM Plex Mono
 .metric-pill .mv{font-size:13px;color:#e8f2ff}
 .mv.cy{color:#22d3ee}.mv.gn{color:#34d399}.mv.rs{color:#fb7185}.mv.am{color:#f59e0b}
 
-.live-badge{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:10px;letter-spacing:.12em}
+.searchbox{display:flex;margin-left:auto;border:1px solid rgba(34,211,238,0.3);border-radius:5px;overflow:hidden}
+.searchbox input{background:rgba(34,211,238,0.05);border:none;outline:none;color:#e8f2ff;font-family:inherit;font-size:11px;padding:6px 10px;width:210px}
+.searchbox input::placeholder{color:rgba(200,218,240,0.3)}
+.searchbox button{background:rgba(34,211,238,0.12);border:none;color:#22d3ee;font-size:13px;padding:0 11px;cursor:pointer}
+.searchbox button:hover{background:rgba(34,211,238,0.25)}
+.live-badge{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.12em}
 .live-dot{width:7px;height:7px;border-radius:50%;background:#34d399;animation:lp 1.6s infinite}
 .live-badge.replay .live-dot{background:#f59e0b;animation:none}
 @keyframes lp{0%,100%{opacity:1}50%{opacity:.25}}
@@ -97,6 +102,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
   <div class="metric-pill"><span class="ml">Retrieval</span><span class="mv gn" id="mp-retrieval">—</span></div>
   <div class="metric-pill"><span class="ml">Fallback</span><span class="mv" id="mp-fallback">—</span></div>
   <div class="metric-pill"><span class="ml">Feedback</span><span class="mv" id="mp-feedback">—</span></div>
+  <div class="searchbox"><input id="search-input" placeholder="ask the memory…" spellcheck="false"><button id="search-btn">⌕</button></div>
   <div class="live-badge" id="live-badge"><div class="live-dot"></div><span id="live-label">LIVE</span></div>
   <div class="ticker" id="ticker">—</div>
 </div>
@@ -113,6 +119,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
     <span><span class="ln" style="border-color:rgba(34,211,238,0.6)"></span>strong ≥.50</span><br>
     <span><span class="ln" style="border-color:rgba(80,140,220,0.3)"></span>weak</span>
     <label><input type="checkbox" id="hw-only">highways only</label>
+    <label><input type="checkbox" id="cl-toggle" checked>cluster hulls</label>
   </div>
   <div class="pin" id="pin"><span class="close" id="pin-close">×</span><div id="pin-body"></div></div>
   <div class="syspanel" id="syspanel">
@@ -165,6 +172,9 @@ let anims = [];                       // transient activity animations
 let activeGrains = new Map();         // idx -> {until, color}  (event-activated)
 let activeEdges = [];                 // {a, b, until, color}   (event-activated)
 let twinkles = [];                    // ambient starfield breathing
+let clusters = [];                    // [{label, hull, cx, cy}]
+let showClusters = true;
+let search = null;                    // {cx, cy, matches:[{i, score}], until}
 let fieldAlpha = 1.0;                 // eased dim while animations play
 let staticDirty = true;
 const staticLayer = document.createElement('canvas');
@@ -199,6 +209,26 @@ function renderStatic() {
   sctx.clearRect(0, 0, W, H);
   const n = visibleCount();
   const selSet = selected >= 0 ? neighborSet(selected) : null;
+
+  if (showClusters) {
+    sctx.font = `${10 * DPR}px 'IBM Plex Mono', monospace`;
+    for (const c of clusters) {
+      if (!c.hull || c.hull.length < 3) continue;
+      sctx.beginPath();
+      c.hull.forEach(([hx, hy], i) => {
+        const [px, py] = toScreen(hx, hy);
+        i ? sctx.lineTo(px, py) : sctx.moveTo(px, py);
+      });
+      sctx.closePath();
+      sctx.fillStyle = "rgba(80,140,220,0.045)"; sctx.fill();
+      sctx.strokeStyle = "rgba(120,170,240,0.14)"; sctx.lineWidth = 1 * DPR; sctx.stroke();
+      const [lx, ly] = toScreen(c.cx, c.cy);
+      sctx.fillStyle = "rgba(160,200,255,0.42)";
+      sctx.textAlign = "center";
+      sctx.fillText(c.label, lx, ly - 6 * DPR);
+    }
+    sctx.textAlign = "left";
+  }
 
   if (!hwOnly) {
     for (const e of E) {
@@ -269,7 +299,8 @@ function frame(ts) {
   const nowMs = performance.now();
   activeEdges = activeEdges.filter(e => e.until > nowMs);
   for (const [k, v] of activeGrains) if (v.until <= nowMs) activeGrains.delete(k);
-  const dimTarget = (anims.length || activeGrains.size || activeEdges.length) ? 0.20 : 1.0;
+  if (search && search.until <= nowMs) search = null;
+  const dimTarget = (anims.length || activeGrains.size || activeEdges.length || search) ? 0.20 : 1.0;
   fieldAlpha += (dimTarget - fieldAlpha) * 0.12;
   ctx.clearRect(0, 0, stage.width, stage.height);
   ctx.globalAlpha = fieldAlpha;
@@ -370,6 +401,8 @@ function frame(ts) {
     ctx.globalAlpha = 1;
   }
 
+  drawSearch(nowMs);
+
   // activity animations
   const now = performance.now();
   anims = anims.filter(a => now - a.start < a.dur);
@@ -446,7 +479,7 @@ document.getElementById('play-btn').addEventListener('click', () => setPlaying(!
 document.getElementById('now-btn').addEventListener('click', () => { setPlaying(false); cursor = T1; staticDirty = true; });
 document.addEventListener('keydown', e => {
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
-  if (e.code === "Escape") { selected = -1; document.getElementById('pin').classList.remove('show'); staticDirty = true; }
+  if (e.code === "Escape") { selected = -1; search = null; activeGrains.clear(); document.getElementById('pin').classList.remove('show'); staticDirty = true; }
 });
 document.getElementById('speed').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -532,6 +565,65 @@ function select(i) {
 document.getElementById('pin-close').addEventListener('click', () => {
   document.getElementById('pin').classList.remove('show'); selected = -1; staticDirty = true;
 });
+
+// ---------- search beam -------------------------------------------------------
+async function runSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const resp = await fetch(`/api/locate?q=${encodeURIComponent(q)}`);
+  const d = await resp.json();
+  const matches = (d.matches || [])
+    .map(m => ({i: byId.get(m.id), score: m.score}))
+    .filter(m => m.i != null);
+  if (!matches.length) { document.getElementById('ticker').textContent = "no matches"; return; }
+  const wsum = matches.reduce((a, m) => a + m.score, 0) || 1;
+  const cx = matches.reduce((a, m) => a + G[m.i].x * m.score, 0) / wsum;
+  const cy = matches.reduce((a, m) => a + G[m.i].y * m.score, 0) / wsum;
+  search = {cx, cy, matches, until: performance.now() + 14000, q};
+  for (const m of matches) activeGrains.set(m.i, {until: performance.now() + 14000, color: "#e8f2ff"});
+  staticDirty = true;
+  document.getElementById('pin-body').innerHTML =
+    `<div style="color:#22d3ee">⌕ ${q}</div>
+     <div class="p-meta">this is where the query lands in the memory field</div>
+     <div class="nb-title">matches (${matches.length})</div>` +
+    matches.map(m => `<div class="nb" data-j="${m.i}" style="border-color:#22d3ee">
+      <span class="w" style="color:#22d3ee">${m.score.toFixed(2)}</span>${G[m.i].snip.slice(0, 80)}</div>`).join("");
+  const pin = document.getElementById('pin');
+  pin.classList.add('show');
+  pin.querySelectorAll('.nb').forEach(el => el.addEventListener('click', () => select(+el.dataset.j)));
+}
+document.getElementById('search-btn').addEventListener('click', runSearch);
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === "Enter") runSearch();
+  e.stopPropagation();
+});
+document.getElementById('cl-toggle').addEventListener('change', e => { showClusters = e.target.checked; staticDirty = true; });
+
+function drawSearch(nowMs) {
+  if (!search) return;
+  if (search.until <= nowMs) { search = null; return; }
+  const left = Math.min(1, (search.until - nowMs) / 1200);
+  const [sx, sy] = toScreen(search.cx, search.cy);
+  for (const m of search.matches) {
+    const g = G[m.i];
+    const [gx, gy] = toScreen(g.x, g.y);
+    ctx.strokeStyle = "#22d3ee"; ctx.globalAlpha = left * (0.15 + m.score * 0.5);
+    ctx.lineWidth = 1 * DPR;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(gx, gy); ctx.stroke();
+  }
+  const rot = nowMs / 1400;
+  ctx.strokeStyle = "#22d3ee"; ctx.globalAlpha = left;
+  ctx.lineWidth = 1.4 * DPR;
+  ctx.beginPath(); ctx.arc(sx, sy, 11 * DPR, 0, 7); ctx.stroke();
+  for (let a = 0; a < 4; a++) {
+    const th = rot + a * Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(sx + Math.cos(th) * 14 * DPR, sy + Math.sin(th) * 14 * DPR);
+    ctx.lineTo(sx + Math.cos(th) * 21 * DPR, sy + Math.sin(th) * 21 * DPR);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
 
 // ---------- live activity ----------------------------------------------------
 let lastEventTs = new Date().toISOString();
@@ -671,6 +763,17 @@ async function refreshData(first = false) {
     adj.get(e.a).push({j: e.b, w: e.w});
     adj.get(e.b).push({j: e.a, w: e.w});
   }
+  clusters = (d.clusters || []).map(c => {
+    const pts = c.members.map(m => {
+      const g = G[byId.get(rawIdx[m])];
+      return g ? [g.x, g.y] : null;
+    }).filter(Boolean);
+    const hull = convexHull(pts);
+    const cx = pts.reduce((a, p) => a + p[0], 0) / (pts.length || 1);
+    const cy = pts.reduce((a, p) => a + p[1], 0) / (pts.length || 1);
+    return {label: c.label, hull, cx, cy};
+  });
+
   const wasLive = first || isLive();
   T0 = G[0].t; T1 = Math.max(G[G.length - 1].t, Date.now());
   if (wasLive) cursor = T1;
@@ -687,11 +790,43 @@ async function refreshData(first = false) {
   }
 }
 
+function convexHull(pts) {
+  if (pts.length < 3) return [];
+  const P = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+  const lower = [], upper = [];
+  for (const q of P) {
+    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  for (const q of P.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
 (async () => {
   await refreshData(true);
   resize();
   requestAnimationFrame(frame);
   pollHealth();
+  // SSE gives zero-latency events; the 4s poll stays as a safety net
+  // (lastEventTs dedupes between the two paths).
+  try {
+    const es = new EventSource('/api/stream');
+    es.onmessage = msg => {
+      try {
+        const ev = JSON.parse(msg.data);
+        if (ev.timestamp <= lastEventTs) return;
+        lastEventTs = ev.timestamp;
+        if (!isLive()) return;
+        spawnFor(ev);
+        const t = tickerText(ev);
+        if (t) document.getElementById('ticker').textContent = t;
+      } catch (e) {}
+    };
+  } catch (e) {}
   setInterval(pollEvents, 4000);
   setInterval(pollHealth, 10000);
   setInterval(() => { if (isLive()) refreshData(); }, 60000);

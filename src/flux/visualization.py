@@ -306,6 +306,42 @@ def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
         if c["from_id"] in index_of and c["to_id"] in index_of
     ]
 
+    # Soft clusters: members from grain_cluster_touch, labels from the
+    # cluster's strongest entry features.
+    cluster_rows = store.conn.execute(
+        """
+        SELECT grain_id, cluster_id FROM (
+          SELECT t.grain_id, t.cluster_id,
+                 ROW_NUMBER() OVER (PARTITION BY t.grain_id
+                                    ORDER BY t.touch_weight DESC) AS rn
+          FROM grain_cluster_touch t
+          JOIN grains g ON g.id = t.grain_id AND g.status = 'active'
+          WHERE t.touch_weight > 0
+        ) WHERE rn = 1
+        """
+    ).fetchall()
+    members: dict[str, list[int]] = {}
+    for r in cluster_rows:
+        if r["grain_id"] in index_of:
+            members.setdefault(r["cluster_id"], []).append(index_of[r["grain_id"]])
+    label_rows = store.conn.execute(
+        """
+        SELECT m.cluster_id, e.feature, m.weight FROM entry_cluster_membership m
+        JOIN entry_points e ON e.id = m.entry_id
+        ORDER BY m.cluster_id, m.weight DESC
+        """
+    ).fetchall()
+    labels: dict[str, list[str]] = {}
+    for r in label_rows:
+        bucket = labels.setdefault(r["cluster_id"], [])
+        if len(bucket) < 3:
+            bucket.append(r["feature"])
+    clusters = [
+        {"label": " · ".join(labels.get(cid, [])[:3]) or "cluster", "members": idxs}
+        for cid, idxs in members.items()
+        if len(idxs) >= 4
+    ]
+
     totals = store.conn.execute(
         """
         SELECT
@@ -320,6 +356,7 @@ def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
     return {
         "grains": grains,
         "conduits": conduits,
+        "clusters": clusters,
         "totals": {
             "all_conduits": totals["all_conduits"],
             "grain_conduits": totals["grain_conduits"],

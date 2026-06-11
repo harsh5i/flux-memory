@@ -2147,12 +2147,42 @@ def run_dashboard(
     host: str = "127.0.0.1",
     port: int = 7462,
     cfg: Any = None,
+    service: Any = None,
 ) -> None:
-    """Start the HTTP dashboard server (blocking). Ctrl+C to stop."""
+    """Start the HTTP dashboard server (blocking). Ctrl+C to stop.
+
+    service: optional FluxService in the same process — enables /api/locate
+    (query embedding via the service's backend + in-memory index) and gives
+    /api/stream zero-latency events.
+    """
+    import queue as _queue
     import threading as _threading
     import time as _time
+    from . import health as _health
     from .health import flux_health
     from .visualization import cluster_view, export_json
+
+    # ---- SSE: every log_event in this process is pushed to subscribers ----
+    _sse_clients: set = set()
+    _sse_lock = _threading.Lock()
+
+    def _broadcast(event: dict) -> None:
+        with _sse_lock:
+            clients = list(_sse_clients)
+        for q in clients:
+            try:
+                q.put_nowait(event)
+            except _queue.Full:
+                pass
+
+    _health.EVENT_LISTENERS.append(_broadcast)
+
+    def _locate(query: str, k: int = 12) -> dict:
+        if service is None:
+            return {"matches": [], "error": "locate requires the full service"}
+        emb = service._emb.embed(query)
+        hits = service._index.top_k(emb, k)
+        return {"matches": [{"id": gid, "score": round(score, 4)} for gid, score in hits]}
 
     # Concurrent polls (mobile + laptop + browser) all hit slow endpoints
     # (flux_health ~10s, cluster_view ~9s) and serialise on store.lock(),
@@ -2258,6 +2288,44 @@ def run_dashboard(
                     with store.lock():
                         return vitals_history(store, hours=hours)
                 self._send(200, "application/json", _cached_json(key, _compute))
+            elif path == "/api/locate":
+                query = parse_qs(parsed.query)
+                q = (query.get("q", [""])[0] or "").strip()
+                if not q:
+                    self._send(400, "application/json", b'{"error": "q required"}')
+                else:
+                    try:
+                        payload = _locate(q)
+                    except Exception as exc:
+                        payload = {"matches": [], "error": str(exc)}
+                    self._send(200, "application/json",
+                               json.dumps(payload).encode())
+            elif path == "/api/stream":
+                client_q: "_queue.Queue" = _queue.Queue(maxsize=200)
+                with _sse_lock:
+                    _sse_clients.add(client_q)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "keep-alive")
+                    self.end_headers()
+                    self.wfile.write(b": connected\n\n")
+                    self.wfile.flush()
+                    while True:
+                        try:
+                            event = client_q.get(timeout=15)
+                            payload = json.dumps(event).encode()
+                            self.wfile.write(b"data: " + payload + b"\n\n")
+                        except _queue.Empty:
+                            self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+                finally:
+                    with _sse_lock:
+                        _sse_clients.discard(client_q)
+                return
             elif path == "/api/events":
                 query = parse_qs(parsed.query)
                 try:
