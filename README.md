@@ -6,13 +6,17 @@ Flux Memory is an AI memory system that persists knowledge as a self-modifying w
 
 ## Features
 
-- **Graph-based memory** - grains connected by weighted conduits, propagated via signal attenuation
+- **Graph-based memory** - grains connected by weighted, typed conduits, propagated via signal attenuation
 - **Self-organizing** - lazy decay, Louvain clustering, automatic promotion/demotion, shortcut reinforcement
+- **Epistemic layer** - contradiction & supersession detection, per-grain confidence that evolves with corroboration and age, typed relations (`contradicts` / `supersedes` / `supports` / `caused_by`), and tombstones that survive forgetting
+- **Memory consolidation ("dream cycle")** - the daemon periodically abstracts dense clumps of related grains into one higher-level grain, gated against hallucination
+- **Health monitor** - 14 first-class signals, snapshot history, optional Telegram alerts on new warnings
+- **Live visualizations** - five dashboard views: Knowledge Graph, Mycelium, Globe, Vitals (signal timelines), and Chronicle (semantic replay with real-time activity, search beam, cluster hulls, heat trails, grain dossier)
 - **Three access paths** - MCP server (for AI agents), REST API (HTTP), Python SDK
+- **Single-writer daemon** - MCP processes run as thin clients of the running service; only the daemon opens the database
 - **Booth architecture** - concurrent read workers, serial write queue, async feedback queue
-- **Per-caller rate limiting** - 500 grains/min default, configurable per instance
-- **Admin authentication** - argon2 password hashing, TOTP 2FA (RFC 6238), session tokens
-- **Two operating modes** - `flux_extracts` (local Ollama LLM) or `caller_extracts` (AI provides features)
+- **Per-caller rate limiting & feedback enforcement** - 500 grains/min default; callers close retrieval feedback loops
+- **Two operating modes** - `flux_extracts` (LLM extracts grains) or `caller_extracts` (AI provides content directly)
 
 ## Quick Start
 
@@ -39,8 +43,6 @@ flux init --name my-memory
 
 This prompts for:
 - Operating mode (`caller_extracts` or `flux_extracts`)
-- Admin password (argon2-hashed)
-- Optional TOTP two-factor authentication, with terminal QR and first-code verification
 
 Initialization also writes MCP client snippets under:
 
@@ -56,7 +58,7 @@ flux start --name my-memory
 
 Starts:
 - REST API health endpoint at `http://localhost:7465/health`
-- Dashboard at `http://localhost:7462`
+- Dashboard at `http://localhost:7462` — views: `/` (Knowledge Graph), `/mycelium`, `/globe`, `/chronicle` (semantic replay), `/vitals` (health timelines)
 
 To view the dashboard from a phone on the same local network, start with:
 
@@ -229,7 +231,7 @@ Instance config lives at `~/.flux/<name>/config.yaml`. Key parameters:
 flux admin --name my-memory
 ```
 
-Password + TOTP gated interactive menu: search/purge/restore grains, view audit log, change password, open dashboard.
+Interactive menu: search/purge/restore grains, view audit log, export grain details, open dashboard. Destructive operations (purge) require a session-local confirmation token, generated automatically, which prevents accidental programmatic deletion — there is no password to set or forget.
 
 ## Requirements
 

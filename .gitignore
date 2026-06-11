@@ -23,3 +23,8 @@ build/
 # OS
 Thumbs.db
 *.Connection objects
+
+# Guard against the stringified-Connection bug (objects used as filenames)
+<sqlite3.Connection*
+*.bak
+static/*.bak-*

@@ -50,6 +50,7 @@ tests/
 - Structured JSON logging (§11.5).
 - All parameters from config.py — none hardcoded.
 
-## Track status (see CHECKPOINT.md for full detail)
-- Track 1 steps 1–8: ✅ complete
-- Track 2–6: ⬜ not started
+## Status
+- Tracks 1–6: ✅ complete. Live in production (~7K grains, MCP + REST + dashboard, single-writer daemon).
+- Beyond spec (2026-06): epistemic layer (contradiction/supersession, evolving confidence, typed conduit relations, tombstones), dream-cycle consolidation, store-time dedup, health alerts + snapshot history, five dashboard views incl. Chronicle. Admin password/TOTP removed; confirmation token retained.
+- `src/flux/` modules added since spec: epistemics.py, consolidation.py, alerts.py, remote.py (thin-client), visualization.py (chronicle_data/grain_dossier/trace_walk).
