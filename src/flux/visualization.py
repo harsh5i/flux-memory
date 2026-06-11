@@ -14,6 +14,7 @@ the current decayed state rather than the stored value.
 from __future__ import annotations
 
 import json
+import math
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
@@ -262,6 +263,11 @@ def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
         xy = (xy - lo) / span
         for gid, (px, py) in zip(grain_ids, xy):
             coords[gid] = (round(float(px), 4), round(float(py), 4))
+    elif len(grain_ids) == 2:
+        coords[grain_ids[0]] = (0.35, 0.5)
+        coords[grain_ids[1]] = (0.65, 0.5)
+    elif len(grain_ids) == 1:
+        coords[grain_ids[0]] = (0.5, 0.5)
 
     rows = store.conn.execute(
         """
@@ -277,6 +283,30 @@ def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
         degree[r["from_id"]] = degree.get(r["from_id"], 0) + 1
         degree[r["to_id"]] = degree.get(r["to_id"], 0) + 1
 
+    heat_cutoff = (utcnow() - timedelta(hours=72)).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+    heat_counts = {
+        str(r["grain_id"]): int(r["n"])
+        for r in store.conn.execute(
+            """
+            SELECT je.value AS grain_id, COUNT(*) AS n
+            FROM events e, json_each(json_extract(e.data, '$.grain_ids')) AS je
+            WHERE e.event = 'grains_returned'
+              AND e.timestamp >= ?
+            GROUP BY je.value
+            """,
+            (heat_cutoff,),
+        ).fetchall()
+        if r["grain_id"] is not None
+    }
+    max_heat_count = max(heat_counts.values(), default=0)
+    heat = {}
+    if max_heat_count > 0:
+        denom = math.log1p(max_heat_count)
+        heat = {
+            gid: round(min(1.0, math.log1p(count) / denom), 3)
+            for gid, count in heat_counts.items()
+        }
+
     grains = []
     index_of: dict[str, int] = {}
     for r in rows:
@@ -288,6 +318,7 @@ def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
             r["id"], x, y, r["created_at"], r["provenance"],
             r["decay_class"], degree.get(r["id"], 0),
             (r["content"] or "")[:110],
+            heat.get(r["id"], 0.0),
         ])
 
     conduit_rows = store.conn.execute(
@@ -363,6 +394,6 @@ def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
             "highways": totals["highways"],
         },
         "grain_fields": ["id", "x", "y", "created_at", "provenance",
-                         "decay_class", "degree", "snippet"],
+                         "decay_class", "degree", "snippet", "heat"],
         "conduit_fields": ["from_idx", "to_idx", "weight", "created_at"],
     }

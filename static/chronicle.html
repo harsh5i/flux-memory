@@ -118,6 +118,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
     <span><span class="ln" style="border-color:#facc15"></span>highway ≥.80</span><br>
     <span><span class="ln" style="border-color:rgba(34,211,238,0.6)"></span>strong ≥.50</span><br>
     <span><span class="ln" style="border-color:rgba(80,140,220,0.3)"></span>weak</span>
+    <label><input type="checkbox" id="heat-toggle" checked><span class="sw" style="background:#ff7828"></span>heat = retrieved recently</label>
     <label><input type="checkbox" id="hw-only">highways only</label>
     <label><input type="checkbox" id="cl-toggle" checked>cluster hulls</label>
   </div>
@@ -167,7 +168,7 @@ let G = [], E = [], byId = new Map(), adj = new Map();
 let T0 = 0, T1 = 1, cursor = 0;
 let playing = false, daysPerSec = 4;
 let cam = {x: 0, y: 0, k: 1};
-let selected = -1, hovered = -1, hwOnly = false;
+let selected = -1, hovered = -1, hwOnly = false, showHeat = true;
 let anims = [];                       // transient activity animations
 let activeGrains = new Map();         // idx -> {until, color}  (event-activated)
 let activeEdges = [];                 // {a, b, until, color}   (event-activated)
@@ -258,6 +259,10 @@ function renderStatic() {
     const dim = selSet && !selSet.has(i);
     const r = (g.dc === "core" ? 3.2 : 1.9) * DPR * Math.sqrt(cam.k);
     const col = COLORS[g.prov] || "#8fa8c8";
+    if (showHeat && g.heat > 0) {
+      sctx.beginPath(); sctx.arc(sx, sy, r * (1.5 + g.heat * 1.8), 0, 7);
+      sctx.fillStyle = `rgba(255,120,40,${0.05 + g.heat * 0.25})`; sctx.fill();
+    }
     if (!dim && g.t > recentCut && playing) {
       sctx.beginPath(); sctx.arc(sx, sy, r * 2.6, 0, 7);
       sctx.fillStyle = col + "33"; sctx.fill();
@@ -487,6 +492,7 @@ document.getElementById('speed').addEventListener('click', e => {
   b.classList.add('active'); daysPerSec = +b.dataset.d;
 });
 document.getElementById('hw-only').addEventListener('change', e => { hwOnly = e.target.checked; staticDirty = true; });
+document.getElementById('heat-toggle').addEventListener('change', e => { showHeat = e.target.checked; staticDirty = true; });
 
 const tl = document.getElementById('timeline');
 let scrubbing = false;
@@ -750,7 +756,7 @@ document.getElementById('sys-head').addEventListener('click', () => {
 async function refreshData(first = false) {
   const d = await (await fetch('/api/chronicle')).json();
   const prevN = G.length;
-  G = d.grains.map(g => ({id: g[0], x: g[1], y: g[2], t: parseT(g[3]), prov: g[4], dc: g[5], deg: g[6], snip: g[7]}));
+  G = d.grains.map(g => ({id: g[0], x: g[1], y: g[2], t: parseT(g[3]), prov: g[4], dc: g[5], deg: g[6], snip: g[7], heat: g[8] || 0}));
   const rawIdx = d.grains.map(g => g[0]);
   G.sort((a, b) => a.t - b.t);
   byId = new Map(G.map((g, i) => [g.id, i]));
