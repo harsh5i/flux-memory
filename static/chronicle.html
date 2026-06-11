@@ -162,6 +162,9 @@ let playing = false, daysPerSec = 4;
 let cam = {x: 0, y: 0, k: 1};
 let selected = -1, hovered = -1, hwOnly = false;
 let anims = [];                       // transient activity animations
+let activeGrains = new Map();         // idx -> {until, color}  (event-activated)
+let activeEdges = [];                 // {a, b, until, color}   (event-activated)
+let twinkles = [];                    // ambient starfield breathing
 let fieldAlpha = 1.0;                 // eased dim while animations play
 let staticDirty = true;
 const staticLayer = document.createElement('canvas');
@@ -262,8 +265,11 @@ function frame(ts) {
   frame.last = ts;
 
   if (staticDirty) { renderStatic(); drawHistCursor(); updateHud(); staticDirty = false; }
-  // ease the field toward dim while activity animations play, so pulses pop
-  const dimTarget = anims.length ? 0.22 : 1.0;
+  // ease the field toward dim while activity plays, so highlights pop
+  const nowMs = performance.now();
+  activeEdges = activeEdges.filter(e => e.until > nowMs);
+  for (const [k, v] of activeGrains) if (v.until <= nowMs) activeGrains.delete(k);
+  const dimTarget = (anims.length || activeGrains.size || activeEdges.length) ? 0.20 : 1.0;
   fieldAlpha += (dimTarget - fieldAlpha) * 0.12;
   ctx.clearRect(0, 0, stage.width, stage.height);
   ctx.globalAlpha = fieldAlpha;
@@ -287,6 +293,82 @@ function frame(ts) {
   }
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
+
+  // ---- ambient breathing (the field is alive even when idle) ----
+  const nVis = visibleCount();
+  // refresh a rotating subset of twinkling grains
+  while (twinkles.length < Math.min(140, nVis)) {
+    twinkles.push({i: Math.floor(Math.random() * nVis), ph: Math.random() * 6.28, sp: 0.9 + Math.random() * 1.6});
+  }
+  if (nVis > 0 && Math.random() < 0.25) {
+    twinkles[Math.floor(Math.random() * twinkles.length)] =
+      {i: Math.floor(Math.random() * nVis), ph: Math.random() * 6.28, sp: 0.9 + Math.random() * 1.6};
+  }
+  ctx.globalAlpha = fieldAlpha;
+  for (const tw of twinkles) {
+    if (tw.i >= nVis) continue;
+    const g = G[tw.i];
+    const [sx, sy] = toScreen(g.x, g.y);
+    if (sx < 0 || sy < 0 || sx > stage.width || sy > stage.height) continue;
+    const pulse = (Math.sin(ts / 700 * tw.sp + tw.ph) + 1) / 2;        // 0..1
+    const r = (g.dc === "core" ? 3.2 : 1.9) * DPR * Math.sqrt(cam.k);
+    ctx.beginPath(); ctx.arc(sx, sy, r * (1 + pulse * 0.9), 0, 7);
+    ctx.fillStyle = COLORS[g.prov] || "#8fa8c8";
+    ctx.globalAlpha = fieldAlpha * (0.25 + pulse * 0.45);
+    ctx.fill();
+  }
+  // core grains breathe with a slow halo
+  for (let i = 0; i < nVis; i++) {
+    const g = G[i];
+    if (g.dc !== "core") continue;
+    const [sx, sy] = toScreen(g.x, g.y);
+    if (sx < -20 || sy < -20 || sx > stage.width + 20 || sy > stage.height + 20) continue;
+    const ph = (Math.sin(ts / 1600 + (g.x + g.y) * 40) + 1) / 2;
+    ctx.beginPath(); ctx.arc(sx, sy, (4 + ph * 5) * DPR * Math.sqrt(cam.k), 0, 7);
+    ctx.fillStyle = COLORS[g.prov] || "#8fa8c8";
+    ctx.globalAlpha = fieldAlpha * (0.06 + ph * 0.10);
+    ctx.fill();
+  }
+  // continuous flow along highways — sparks drifting down the strongest paths
+  ctx.globalAlpha = Math.max(fieldAlpha, 0.65);
+  let hwIdx = 0;
+  for (const e of E) {
+    if (e.w < 0.8 || e.t > cursor) continue;
+    const a = G[e.a], b = G[e.b];
+    if (a.t > cursor || b.t > cursor) continue;
+    hwIdx++;
+    const p = ((ts / 2600) + hwIdx * 0.37) % 1;
+    const [x1, y1] = toScreen(a.x, a.y), [x2, y2] = toScreen(b.x, b.y);
+    const sx = x1 + (x2 - x1) * p, sy = y1 + (y2 - y1) * p;
+    ctx.beginPath(); ctx.arc(sx, sy, 1.8 * DPR, 0, 7);
+    ctx.fillStyle = "#fde047"; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // ---- event-activated highlights: the grains and conduits actually used ----
+  for (const e of activeEdges) {
+    const a = G[e.a], b = G[e.b];
+    if (!a || !b) continue;
+    const [x1, y1] = toScreen(a.x, a.y), [x2, y2] = toScreen(b.x, b.y);
+    const left = Math.min(1, (e.until - nowMs) / 900);
+    ctx.strokeStyle = e.color; ctx.globalAlpha = 0.25 + left * 0.65;
+    ctx.lineWidth = 2.2 * DPR;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  for (const [i, v] of activeGrains) {
+    const g = G[i]; if (!g) continue;
+    const [sx, sy] = toScreen(g.x, g.y);
+    const left = Math.min(1, (v.until - nowMs) / 900);
+    const r = (g.dc === "core" ? 3.2 : 1.9) * DPR * Math.sqrt(cam.k);
+    ctx.beginPath(); ctx.arc(sx, sy, r * 2.6, 0, 7);          // halo
+    ctx.fillStyle = v.color; ctx.globalAlpha = 0.18 * left + 0.06; ctx.fill();
+    ctx.beginPath(); ctx.arc(sx, sy, r * 1.6, 0, 7);          // bright body
+    ctx.fillStyle = v.color; ctx.globalAlpha = 0.55 + left * 0.45; ctx.fill();
+    ctx.beginPath(); ctx.arc(sx, sy, r * 0.7, 0, 7);          // white core
+    ctx.fillStyle = "#ffffff"; ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
   // activity animations
   const now = performance.now();
@@ -455,19 +537,55 @@ document.getElementById('pin-close').addEventListener('click', () => {
 let lastEventTs = new Date().toISOString();
 function spawnFor(ev) {
   const d = ev.data || {};
+  const now = performance.now();
+  const idxOf = id => byId.has(id) ? byId.get(id) : -1;
   const at = id => byId.has(id) ? G[byId.get(id)] : null;
-  const pulse = (g, color, dur = 1600) => g && anims.push({kind: "pulse", x: g.x, y: g.y, color, start: performance.now(), dur});
-  const edge = (a, b, color, dur = 1300) => { if (a && b) anims.push({kind: "edge", x1: a.x, y1: a.y, x2: b.x, y2: b.y, color, start: performance.now(), dur}); };
+  const pulse = (g, color, dur = 1600) => g && anims.push({kind: "pulse", x: g.x, y: g.y, color, start: now, dur});
+  const edge = (a, b, color, dur = 1300) => { if (a && b) anims.push({kind: "edge", x1: a.x, y1: a.y, x2: b.x, y2: b.y, color, start: now, dur}); };
+  const lightGrain = (i, color, ms) => { if (i >= 0) activeGrains.set(i, {until: now + ms, color}); };
+  const lightEdge = (i, j, color, ms) => { if (i >= 0 && j >= 0) activeEdges.push({a: i, b: j, until: now + ms, color}); };
 
-  if (ev.event === "grain_stored") pulse(at(d.grain_id), "#22d3ee");
-  else if (ev.event === "grain_deduplicated") pulse(at(d.existing_grain_id), "#a78bfa");
-  else if (ev.event === "grains_returned") (d.grain_ids || []).forEach((gid, k) =>
-    setTimeout(() => pulse(at(gid), "#e8f2ff", 1400), k * 110));
-  else if (ev.event === "feedback_received") pulse(at(d.grain_id), d.action === "penalized" ? "#fb7185" : "#34d399");
-  else if (ev.event === "conduit_reinforced") edge(at(d.from_id), at(d.to_id), "#34d399");
-  else if (ev.event === "conduit_penalized") edge(at(d.from_id), at(d.to_id), "#fb7185");
-  else if (ev.event === "highway_formed") { edge(at(d.from_id), at(d.to_id), "#facc15", 2200); pulse(at(d.to_id), "#facc15", 2200); }
-  else return false;
+  if (ev.event === "grain_stored") {
+    const i = idxOf(d.grain_id);
+    lightGrain(i, "#22d3ee", 6000); pulse(G[i], "#22d3ee");
+  } else if (ev.event === "grain_deduplicated") {
+    const i = idxOf(d.existing_grain_id);
+    lightGrain(i, "#a78bfa", 5000); pulse(G[i], "#a78bfa");
+  } else if (ev.event === "grains_returned") {
+    // light up the activated subgraph: returned grains + conduits among them
+    const idxs = (d.grain_ids || []).map(idxOf).filter(i => i >= 0);
+    idxs.forEach((i, k) => {
+      setTimeout(() => { lightGrain(i, "#e8f2ff", 8000); pulse(G[i], "#e8f2ff", 1400); }, k * 130);
+    });
+    const inSet = new Set(idxs);
+    for (const i of idxs) {
+      const nbs = (adj.get(i) || []).slice().sort((a, b) => b.w - a.w);
+      let lit = 0;
+      for (const {j, w} of nbs) {
+        const within = inSet.has(j);
+        if (within && i < j) lightEdge(i, j, w >= 0.8 ? "#fde047" : "#9bd6ee", 8000);
+        // also trace each activated grain's strongest paths outward
+        else if (!within && lit < 2) { lightEdge(i, j, "#9bd6ee", 6000); lit++; }
+      }
+    }
+  } else if (ev.event === "feedback_received") {
+    const i = idxOf(d.grain_id);
+    const c = d.action === "penalized" ? "#fb7185" : "#34d399";
+    lightGrain(i, c, 6000); pulse(G[i], c);
+    for (const {j} of (adj.get(i) || []).slice(0, 6)) lightEdge(i, j, c, 5000);
+  } else if (ev.event === "conduit_reinforced") {
+    const i = idxOf(d.from_id), j = idxOf(d.to_id);
+    lightEdge(i, j, "#34d399", 5500); edge(at(d.from_id), at(d.to_id), "#34d399");
+    lightGrain(j, "#34d399", 5500);
+  } else if (ev.event === "conduit_penalized") {
+    const i = idxOf(d.from_id), j = idxOf(d.to_id);
+    lightEdge(i, j, "#fb7185", 5500); edge(at(d.from_id), at(d.to_id), "#fb7185");
+    lightGrain(j, "#fb7185", 5500);
+  } else if (ev.event === "highway_formed") {
+    const i = idxOf(d.from_id), j = idxOf(d.to_id);
+    lightEdge(i, j, "#fde047", 9000); edge(at(d.from_id), at(d.to_id), "#fde047", 2200);
+    lightGrain(i, "#fde047", 9000); lightGrain(j, "#fde047", 9000);
+  } else return false;
   return true;
 }
 function tickerText(ev) {
