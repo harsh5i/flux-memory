@@ -156,6 +156,7 @@ def reinforce(
     *,
     now: datetime | None = None,
     trace_id: str | None = None,
+    scale: float = 1.0,
 ) -> None:
     """Widen conduits on the successful trace, upsert co-retrieval counts,
     create/reinforce shortcuts between successful pairs, sharpen affinities."""
@@ -173,7 +174,7 @@ def reinforce(
             continue
         target = store.get_grain(step.to_id)
         multiplier = cfg.provenance_multiplier(target.provenance) if target else 1.0
-        _widen(store, conduit, cfg, now, multiplier=multiplier, trace_id=trace_id)
+        _widen(store, conduit, cfg, now, multiplier=multiplier * scale, trace_id=trace_id)
 
     # 2. Co-retrieval counts and shortcut creation between every successful pair.
     successful_list = sorted(successful)  # stable iteration
@@ -209,6 +210,7 @@ def penalize(
     *,
     now: datetime | None = None,
     trace_id: str | None = None,
+    scale: float = 1.0,
 ) -> None:
     """Narrow conduits to failed grains; delete if weight falls below floor.
     Dampen entry affinities on failed first hops."""
@@ -226,7 +228,10 @@ def penalize(
         # floor. Grace is about protecting new conduits from time-decay
         # starvation, not from explicit negative feedback.
         current = effective_weight(conduit, cfg, now, apply_grace_floor=False)
-        new_weight = current * cfg.DECAY_FACTOR
+        # scale grades the penalty: 1.0 applies the full DECAY_FACTOR cut,
+        # smaller values interpolate toward no change.
+        decay = 1.0 - (1.0 - cfg.DECAY_FACTOR) * scale
+        new_weight = current * decay
         weight_drop = max(current - new_weight, 0.0)
         if new_weight < cfg.WEIGHT_FLOOR:
             store.delete_conduit(conduit.id)

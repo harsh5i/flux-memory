@@ -192,6 +192,7 @@ def store_atomic_grain_ex(
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
     index: EmbeddingIndex | None = None,
+    caller_id: str = "default",
 ) -> tuple[str, str]:
     """Store one already-atomic grain and wire it into the graph.
 
@@ -232,7 +233,7 @@ def store_atomic_grain_ex(
                 "existing_grain_id": duplicate_id,
                 "similarity": round(similarity, 4),
                 "content_len": len(content),
-            }, now=now)
+            }, now=now, caller_id=caller_id)
             return duplicate_id, "duplicate"
 
     grain = Grain(content=content, provenance=provenance, created_at=now)
@@ -241,7 +242,7 @@ def store_atomic_grain_ex(
         "grain_id": grain.id,
         "provenance": provenance,
         "content_len": len(content),
-    }, now=now)
+    }, now=now, caller_id=caller_id)
 
     if embedding is None:
         _connect_to_entries(grain, llm, store, cfg, now)

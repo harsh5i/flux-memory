@@ -73,9 +73,14 @@ def store_embedding(
     model_name: str,
     now=None,
 ) -> None:
-    """Persist a grain's embedding to grain_embeddings table."""
+    """Persist a grain's embedding to grain_embeddings table.
+
+    Stored as a float32 blob (~4 bytes/dim). Legacy rows hold JSON text;
+    decode_embedding handles both.
+    """
     now = now or utcnow()
     from .graph import iso
+    blob = np.asarray(embedding, dtype=np.float32).tobytes()
     store.conn.execute(
         """
         INSERT INTO grain_embeddings (grain_id, embedding, model_name, created_at)
@@ -83,8 +88,15 @@ def store_embedding(
         ON CONFLICT(grain_id) DO UPDATE SET embedding=excluded.embedding,
             model_name=excluded.model_name, created_at=excluded.created_at
         """,
-        (grain_id, json.dumps(embedding), model_name, iso(now)),
+        (grain_id, blob, model_name, iso(now)),
     )
+
+
+def decode_embedding(value) -> np.ndarray:
+    """Decode a grain_embeddings.embedding value: float32 blob or legacy JSON."""
+    if isinstance(value, (bytes, memoryview)):
+        return np.frombuffer(bytes(value), dtype=np.float32)
+    return np.asarray(json.loads(value), dtype=np.float32)
 
 
 def load_all_embeddings(store: FluxStore) -> tuple[list[str], np.ndarray]:
@@ -101,7 +113,7 @@ def load_all_embeddings(store: FluxStore) -> tuple[list[str], np.ndarray]:
     if not rows:
         return [], np.empty((0, 0), dtype=np.float32)
     grain_ids = [r["grain_id"] for r in rows]
-    matrix = np.array([json.loads(r["embedding"]) for r in rows], dtype=np.float32)
+    matrix = np.stack([decode_embedding(r["embedding"]) for r in rows])
     return grain_ids, matrix
 
 

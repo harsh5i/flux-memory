@@ -202,6 +202,13 @@ def build_mcp_server(
                             "type": "boolean",
                             "description": "True if grain was actually used in your response.",
                         },
+                        "strength": {
+                            "type": "number",
+                            "description": "Grade the signal, 0-1. 1.0 = fully used / "
+                                           "completely wrong; 0.5 = partially relevant / "
+                                           "mildly off. Default 1.0.",
+                            "default": 1.0,
+                        },
                         "caller_id": {
                             "type": "string",
                             "description": "Portable caller identity. Prefer '<client>:<role>'.",
@@ -365,14 +372,15 @@ def _dispatch(
         }
 
     if name == "flux_feedback":
+        strength = float(args.get("strength", 1.0))
         if service is not None:
             result = service.feedback_sync(args["trace_id"], args["grain_id"], args["useful"],
-                             caller_id=caller_id)
+                             caller_id=caller_id, strength=strength)
             return {"trace_id": result.trace_id, "grain_id": result.grain_id, "action": result.action, "effective_signal": result.effective_signal}
         result = flux_feedback(
             args["trace_id"], args["grain_id"], args["useful"],
             store=store, cfg=cfg,
-            caller_id=caller_id,
+            caller_id=caller_id, strength=strength,
         )
         return {
             "trace_id": result.trace_id,
@@ -382,18 +390,21 @@ def _dispatch(
         }
 
     if name == "flux_health":
+        if service is not None:
+            return service.health()
         return flux_health(store, cfg)
 
     if name == "flux_pending_feedback":
-        from .health import pending_feedback_for_caller, normalize_caller_id
-        target = args.get("target_caller_id") or caller_id
-        target = normalize_caller_id(target)
-        result = pending_feedback_for_caller(
+        from .health import normalize_caller_id
+        target = normalize_caller_id(args.get("target_caller_id") or caller_id)
+        if service is not None:
+            return service.pending_feedback(target)
+        from .health import pending_feedback_for_caller
+        return pending_feedback_for_caller(
             store, target,
             grace_seconds=cfg.FEEDBACK_ENFORCEMENT_GRACE_SECONDS,
             max_block_seconds=cfg.FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS,
         )
-        return result
 
     if name == "flux_list_grains":
         if service is not None:

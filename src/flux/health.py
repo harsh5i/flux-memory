@@ -58,10 +58,11 @@ _HEALTHY_RANGES: dict[str, dict] = {
     "highway_growth_rate": {
         "window": "long",
         "min": 0.1,
-        "max": 20,
+        "max": 100,
         "warmup_days": 14,
         "severity": "INFO",
-        "suggestion": "Queries may not be repeating enough to form highways.",
+        "suggestion": "Zero: queries not repeating enough to form highways. "
+                      "High: weights racing to ceiling — check LEARNING_RATE.",
     },
     "shortcut_creation_rate": {
         "window": "short",
@@ -898,12 +899,17 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
     quality_retrievals_short = _quality_retrieval_rows(cutoff_short)
     quality_retrieval_count_short = _quality_retrieval_count(quality_retrievals_short)
 
-    # Highway growth rate: new conduits that crossed weight 0.80 (proxied by
-    # reinforce events that set weight above 0.80, logged in feedback events).
+    # Highway growth rate: DISTINCT conduits that crossed weight 0.80 in the
+    # window. Conduits oscillating around the threshold (decay below, reinforce
+    # above) log highway_formed repeatedly — counting raw events inflated this
+    # signal ~10x and kept a chronic false warning active.
     hgr = store.conn.execute(
         """
-        SELECT COUNT(*) AS n FROM events
-        WHERE category='feedback' AND event='highway_formed' AND timestamp >= ?
+        SELECT COUNT(DISTINCT json_extract(e.data, '$.conduit_id')) AS n
+        FROM events e
+        JOIN conduits c ON c.id = json_extract(e.data, '$.conduit_id')
+        WHERE e.category='feedback' AND e.event='highway_formed'
+          AND e.timestamp >= ? AND c.weight >= 0.80
         """,
         (cutoff_long,),
     ).fetchone()
@@ -1105,6 +1111,49 @@ def _sync_feedback_caller_warnings(store: FluxStore, now: datetime) -> None:
         _clear_warning(store, row["signal"], now)
 
 
+_PROVENANCE_SKEW_MIN_STORES = 20
+_PROVENANCE_SKEW_THRESHOLD = 0.90
+
+
+def _caller_provenance_summary(store: FluxStore, cutoff: str) -> list[dict]:
+    """Per-caller provenance distribution of grain_stored events since cutoff.
+
+    user_stated carries the highest trust multiplier (§7.2), so a caller whose
+    stores are almost all user_stated is either mislabeling AI observations as
+    user statements or has a broken integration — both inflate reinforcement.
+    """
+    rows = store.conn.execute(
+        """
+        SELECT COALESCE(json_extract(data, '$.caller_id'), 'unknown') AS caller,
+               json_extract(data, '$.provenance') AS provenance,
+               COUNT(*) AS n
+        FROM events
+        WHERE category='write' AND event='grain_stored' AND timestamp >= ?
+        GROUP BY caller, provenance
+        """,
+        (cutoff,),
+    ).fetchall()
+    by_caller: dict[str, dict] = {}
+    for r in rows:
+        entry = by_caller.setdefault(r["caller"], {"total": 0, "user_stated": 0})
+        entry["total"] += r["n"]
+        if r["provenance"] == "user_stated":
+            entry["user_stated"] += r["n"]
+    summary = []
+    for caller, counts in sorted(by_caller.items()):
+        if counts["total"] < _PROVENANCE_SKEW_MIN_STORES:
+            continue
+        fraction = counts["user_stated"] / counts["total"]
+        summary.append({
+            "caller_id": caller,
+            "stores": counts["total"],
+            "user_stated": counts["user_stated"],
+            "user_stated_fraction": round(fraction, 4),
+            "skewed": fraction >= _PROVENANCE_SKEW_THRESHOLD,
+        })
+    return summary
+
+
 def _overall_status(warnings: list[dict]) -> str:
     if any(w["severity"] == "CRITICAL" for w in warnings):
         return "critical"
@@ -1167,6 +1216,34 @@ def flux_health(
 
     _sync_feedback_caller_warnings(store, now)
 
+    caller_provenance = _caller_provenance_summary(store, cutoff_short)
+    skewed = [c for c in caller_provenance if c["skewed"]]
+    if skewed:
+        names = ", ".join(c["caller_id"] for c in skewed[:5])
+        transition = _upsert_warning(
+            store,
+            signal="provenance_skew",
+            value=max(c["user_stated_fraction"] for c in skewed),
+            severity="WARNING",
+            healthy_range=f"user_stated fraction < {_PROVENANCE_SKEW_THRESHOLD}",
+            suggestion=f"Caller(s) storing almost everything as user_stated: {names}. "
+                       "AI observations must be ai_stated/ai_inferred or reinforcement "
+                       "is over-trusted.",
+            now=now,
+        )
+        maybe_send_warning_alert(
+            store, cfg,
+            signal="provenance_skew",
+            severity="WARNING",
+            value=max(c["user_stated_fraction"] for c in skewed),
+            healthy_range=f"user_stated fraction < {_PROVENANCE_SKEW_THRESHOLD}",
+            suggestion=f"Skewed caller(s): {names}",
+            transition=transition,
+            now=now,
+        )
+    else:
+        _clear_warning(store, "provenance_skew", now)
+
     active_warnings = _get_active_warnings(store)
     status = _overall_status(active_warnings)
 
@@ -1180,5 +1257,6 @@ def flux_health(
         "signals": signal_results,
         "active_warnings": active_warnings,
         "caller_feedback": _caller_feedback_summary(store, cutoff_short),
+        "caller_provenance": caller_provenance,
         "computed_at": now.isoformat(),
     }

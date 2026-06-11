@@ -53,11 +53,13 @@ try:
         trace_id: str
         grain_id: str
         useful: bool
+        strength: float = 1.0
 
     class FeedbackBatchItem(BaseModel):
         trace_id: str
         grain_id: str
         useful: bool
+        strength: float = 1.0
 
     class FeedbackBatchRequest(BaseModel):
         items: List[FeedbackBatchItem]
@@ -163,14 +165,22 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     @app.post("/feedback")
     def feedback(body: FeedbackRequest, request: Request):
         caller_id = _caller(request)
-        result = service.feedback_sync(body.trace_id, body.grain_id, body.useful, caller_id=caller_id)
-        return {"status": "ok", "signal": result.effective_signal}
+        result = service.feedback_sync(body.trace_id, body.grain_id, body.useful,
+                                       caller_id=caller_id, strength=body.strength)
+        return {
+            "status": "ok",
+            "trace_id": result.trace_id,
+            "grain_id": result.grain_id,
+            "action": result.action,
+            "signal": result.effective_signal,
+        }
 
     @app.post("/feedback/batch")
     def feedback_batch(body: FeedbackBatchRequest, request: Request):
         caller_id = _caller(request)
         items = [
-            {"trace_id": item.trace_id, "grain_id": item.grain_id, "useful": item.useful}
+            {"trace_id": item.trace_id, "grain_id": item.grain_id,
+             "useful": item.useful, "strength": item.strength}
             for item in body.items
         ]
         results = service.feedback_batch_sync(items, caller_id=caller_id)
@@ -190,6 +200,12 @@ def build_app(service: "FluxService", cfg: "Config" = DEFAULT_CONFIG):
     @app.get("/health")
     def health():
         return service.health()
+
+    @app.get("/pending_feedback")
+    def pending_feedback(request: Request, target_caller_id: str | None = None):
+        from .health import normalize_caller_id
+        target = normalize_caller_id(target_caller_id or _caller(request))
+        return service.pending_feedback(target)
 
     @app.get("/grains")
     def list_grains(status: str | None = None, limit: int = 50):

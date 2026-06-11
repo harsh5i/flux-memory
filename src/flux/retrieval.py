@@ -181,6 +181,7 @@ def flux_store_ex(
             cfg=cfg,
             now=now,
             index=index,
+            caller_id=caller_id,
         )
 
     if llm is not None and emb is not None:
@@ -407,10 +408,16 @@ def flux_feedback(
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
     caller_id: str = "default",
+    strength: float = 1.0,
 ) -> FeedbackResult:
     """Apply multi-signal feedback for one grain from a retrieval trace (§7.1).
 
+    ``strength`` (0-1, default 1.0) grades the signal: 1.0 = fully used /
+    completely wrong, 0.5 = partially relevant / mildly off. Clamped to
+    [0.1, 1.0] so the direction given by ``useful`` is always preserved.
+
     Modulates the base AI-usage signal by:
+      - Caller-graded strength (§7.1 Signal 1)
       - Grain's historical usefulness ratio (trend signal, §7.1 Signal 3)
       - Grain's provenance (trust signal, §7.2)
 
@@ -433,14 +440,16 @@ def flux_feedback(
     trace_steps = _decode_trace_steps(trace.trace_data)
 
     # Multi-signal modulation (§7.1).
-    base_signal = 1.0 if useful else -1.0
+    strength = max(0.1, min(1.0, float(strength)))
+    base_signal = (1.0 if useful else -1.0) * strength
     usefulness_ratio = _get_usefulness_ratio(store, grain_id, window_days=7)
     trend_modulator = 0.5 + usefulness_ratio          # range 0.5–1.5
     provenance_modulator = cfg.provenance_multiplier(grain.provenance)
     effective_signal = base_signal * trend_modulator * provenance_modulator
 
     if effective_signal > 0:
-        reinforce(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id)
+        reinforce(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id,
+                  scale=strength)
         # Pair this newly-useful grain with previously-marked-useful grains
         # from the same trace so co-retrieval counts and shortcuts can form.
         try:
@@ -455,7 +464,8 @@ def flux_feedback(
         check_promotion(store, grain_id, trace_steps, cfg=cfg, now=now, trace_id=trace_id)
         action = "reinforced"
     else:
-        penalize(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id)
+        penalize(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id,
+                 scale=strength)
         action = "penalized"
 
     # Record usefulness event so future ratio queries can use it.

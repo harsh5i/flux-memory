@@ -261,12 +261,13 @@ class FluxService:
         )
 
     def feedback_sync(self, trace_id: str, grain_id: str, useful: bool,
-                      caller_id: str = "default") -> FeedbackResult:
+                      caller_id: str = "default",
+                      strength: float = 1.0) -> FeedbackResult:
         """Apply feedback synchronously (for SDK callers that want the result)."""
         with self._store.lock():
             return flux_feedback(trace_id, grain_id, useful,
                                  store=self._store, cfg=self._cfg,
-                                 caller_id=caller_id)
+                                 caller_id=caller_id, strength=strength)
 
     def feedback_batch_sync(self, items: list[dict],
                             caller_id: str = "default") -> list[FeedbackResult]:
@@ -282,6 +283,7 @@ class FluxService:
                     item["trace_id"], item["grain_id"], item["useful"],
                     store=self._store, cfg=self._cfg,
                     caller_id=caller_id,
+                    strength=float(item.get("strength", 1.0)),
                 )
                 results.append(result)
         return results
@@ -290,6 +292,15 @@ class FluxService:
         from .health import flux_health
         with self._store.lock():
             return flux_health(self._store, self._cfg)
+
+    def pending_feedback(self, target_caller_id: str) -> dict:
+        from .health import pending_feedback_for_caller
+        with self._store.lock():
+            return pending_feedback_for_caller(
+                self._store, target_caller_id,
+                grace_seconds=self._cfg.FEEDBACK_ENFORCEMENT_GRACE_SECONDS,
+                max_block_seconds=self._cfg.FEEDBACK_ENFORCEMENT_MAX_BLOCK_SECONDS,
+            )
 
     def list_grains(self, status: str | None = None, limit: int = 50) -> list[dict]:
         """Return grains filtered by status (read-only)."""
