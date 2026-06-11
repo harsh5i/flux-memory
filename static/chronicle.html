@@ -444,6 +444,33 @@ function neighborSet(i) {
   return s;
 }
 
+function drawSoftEdge(x1, y1, x2, y2, color, alpha, width) {
+  // Gentle deterministic bow so beams feel organic instead of ruler-straight.
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const bow = Math.min(40 * DPR, len * 0.12) * (((x1 * 7 + y2 * 13) % 2) ? 1 : -1);
+  const mx = (x1 + x2) / 2 - (dy / len) * bow;
+  const my = (y1 + y2) / 2 + (dx / len) * bow;
+  const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+  grad.addColorStop(0, color + "00");
+  grad.addColorStop(0.45, color + "55");
+  grad.addColorStop(1, color);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.globalCompositeOperation = "lighter";
+  // wide soft glow
+  ctx.globalAlpha = alpha * 0.18;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width * 4.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(mx, my, x2, y2); ctx.stroke();
+  // thin gradient core
+  ctx.globalAlpha = alpha * 0.85;
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = width;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(mx, my, x2, y2); ctx.stroke();
+  ctx.restore();
+}
+
 // ---------- per-frame composite --------------------------------------------
 function frame(ts) {
   if (playing) {
@@ -544,10 +571,7 @@ function frame(ts) {
     if (!a || !b) continue;
     const [x1, y1] = toScreen(a.x, a.y), [x2, y2] = toScreen(b.x, b.y);
     const left = Math.min(1, (e.until - nowMs) / 900);
-    ctx.strokeStyle = e.color; ctx.globalAlpha = 0.25 + left * 0.65;
-    ctx.lineWidth = 2.2 * DPR;
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-    ctx.globalAlpha = 1;
+    drawSoftEdge(x1, y1, x2, y2, e.color, 0.25 + left * 0.6, 1.1 * DPR);
   }
   for (const [i, v] of activeGrains) {
     const g = G[i]; if (!g) continue;
@@ -577,13 +601,15 @@ function frame(ts) {
       ctx.lineWidth = 1.6 * DPR; ctx.stroke(); ctx.globalAlpha = 1;
     } else if (a.kind === "edge") {
       const [x1, y1] = toScreen(a.x1, a.y1), [x2, y2] = toScreen(a.x2, a.y2);
-      ctx.strokeStyle = a.color; ctx.globalAlpha = (1 - p) * 0.95;
-      ctx.lineWidth = (2.4 - p * 1.5) * DPR;
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-      // travelling spark
+      drawSoftEdge(x1, y1, x2, y2, a.color, (1 - p) * 0.8, 1.2 * DPR);
+      // travelling spark with a soft halo
       const sx = x1 + (x2 - x1) * p, sy = y1 + (y2 - y1) * p;
-      ctx.beginPath(); ctx.arc(sx, sy, 2.6 * DPR, 0, 7);
-      ctx.fillStyle = a.color; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.save(); ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = (1 - p) * 0.5;
+      ctx.beginPath(); ctx.arc(sx, sy, 5 * DPR, 0, 7); ctx.fillStyle = a.color; ctx.fill();
+      ctx.globalAlpha = (1 - p);
+      ctx.beginPath(); ctx.arc(sx, sy, 1.8 * DPR, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+      ctx.restore();
     }
   }
 
@@ -775,9 +801,7 @@ function drawSearch(nowMs) {
   for (const m of search.matches) {
     const g = G[m.i];
     const [gx, gy] = toScreen(g.x, g.y);
-    ctx.strokeStyle = "#22d3ee"; ctx.globalAlpha = left * (0.15 + m.score * 0.5);
-    ctx.lineWidth = 1 * DPR;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(gx, gy); ctx.stroke();
+    drawSoftEdge(sx, sy, gx, gy, "#22d3ee", left * (0.12 + m.score * 0.45), 0.9 * DPR);
   }
   const rot = nowMs / 1400;
   ctx.strokeStyle = "#22d3ee"; ctx.globalAlpha = left;
