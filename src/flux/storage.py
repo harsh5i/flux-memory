@@ -68,6 +68,10 @@ class FluxStore:
         if "source_tags" not in cols:
             self.conn.execute(
                 "ALTER TABLE grains ADD COLUMN source_tags TEXT NOT NULL DEFAULT '[]'")
+        ccols = {r[1] for r in self.conn.execute("PRAGMA table_info(conduits)")}
+        if "relation" not in ccols:
+            self.conn.execute(
+                "ALTER TABLE conduits ADD COLUMN relation TEXT NOT NULL DEFAULT 'related'")
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -127,8 +131,8 @@ class FluxStore:
             """
             INSERT INTO conduits (
                 id, from_id, to_id, weight, created_at, last_used,
-                use_count, direction, decay_class
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                use_count, direction, decay_class, relation
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conduit.id,
@@ -140,6 +144,7 @@ class FluxStore:
                 conduit.use_count,
                 conduit.direction,
                 conduit.decay_class,
+                getattr(conduit, "relation", "related"),
             ),
         )
 
@@ -547,6 +552,7 @@ def _row_to_conduit(row: sqlite3.Row) -> Conduit:
         use_count=row["use_count"],
         direction=row["direction"],
         decay_class=row["decay_class"],
+        relation=row["relation"] if "relation" in row.keys() else "related",
     )
 
 

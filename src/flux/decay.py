@@ -96,13 +96,21 @@ def expiry_pass(
     limit = timedelta(days=cfg.DORMANCY_LIMIT_DAYS)
     archived = 0
 
+    tombstoned = 0
     for grain in store.iter_grains(status="dormant"):
         if grain.dormant_since is None:
             continue
         if (now - grain.dormant_since) >= limit:
+            # Active forgetting: leave a residue for grains that mattered.
+            try:
+                from .epistemics import leave_tombstone
+                if leave_tombstone(store, grain, cfg, now):
+                    tombstoned += 1
+            except Exception:
+                pass
             store.update_grain_status(grain.id, "archived")
             archived += 1
 
-    stats = {"grains_archived": archived}
+    stats = {"grains_archived": archived, "tombstones_left": tombstoned}
     log_event(store, "decay", "expiry_pass_completed", stats, now=now)
     return stats

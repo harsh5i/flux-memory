@@ -151,7 +151,24 @@ class Config:
     ALERT_TELEGRAM_CHAT_ID: str = ""
     ALERT_MIN_INTERVAL_HOURS: float = 6.0
 
+    # --- Epistemics (contradiction, confidence, typed links, tombstones) ---
+    # On store, if a new grain is >= this cosine to an existing active grain,
+    # an LLM judge classifies their relation (contradicts / supersedes /
+    # duplicate / independent). Most stores never trigger it.
+    EPISTEMIC_CHECK_SIMILARITY: float = 0.82
+    EPISTEMIC_CHECK_ENABLED: bool = True
+    # Confidence multipliers applied to retrieval score (epistemic trust).
+    CONTRADICTION_CONFIDENCE_PENALTY: float = 0.5   # loser of a contradiction
+    SUPERSEDED_CONFIDENCE_PENALTY: float = 0.4      # superseded (stale) grain
+    CONFIRMATION_CONFIDENCE_BOOST: float = 1.15     # corroborated grain (capped at 1.0)
+    AI_INFERRED_CONFIDENCE_HALFLIFE_DAYS: float = 30.0  # unconfirmed inferences fade in trust
+    CONFIDENCE_RETRIEVAL_WEIGHT: float = 0.5        # how strongly confidence scales score (0=off)
+    # Active forgetting: leave a one-line tombstone when a grain is archived.
+    TOMBSTONE_ENABLED: bool = True
+    TOMBSTONE_MIN_DEGREE: int = 2                   # only tombstone grains that mattered
+
     # --- Dream cycle (consolidation) ---
+    DREAM_MAX_CLUSTER: int = 25          # split mega-clumps; centroid stays meaningful
     # Periodically, the service finds dense clumps of semantically-related
     # working grains and synthesizes ONE higher-level grain via the configured
     # LLM backend — encode → decay → consolidate. Sources are linked as

@@ -346,20 +346,31 @@ def flux_retrieve(
             "confidence": confidence,
         }, trace_id=trace.id, now=now, caller_id=caller_id)
 
-    # 6. Build response.
+    # 6. Build response, scaling each score by the grain's epistemic confidence
+    #    so contradicted/stale/unconfirmed knowledge ranks lower (epistemics).
+    from .epistemics import effective_confidence
     grains_out = []
     for grain_id, score in result.activated:
         g = store.get_grain(grain_id)
         if g is None:
             continue
+        row = store.conn.execute(
+            "SELECT confidence, provenance, created_at FROM grains WHERE id = ?",
+            (grain_id,),
+        ).fetchone()
+        conf = effective_confidence(row, cfg, now) if row else 1.0
+        adj_score = score * (1.0 - cfg.CONFIDENCE_RETRIEVAL_WEIGHT
+                             + cfg.CONFIDENCE_RETRIEVAL_WEIGHT * conf)
         grains_out.append({
             "id": g.id,
             "content": g.content,
             "provenance": g.provenance,
             "decay_class": g.decay_class,
-            "score": score,
+            "score": adj_score,
+            "confidence": round(conf, 3),
             "source": "propagation",
         })
+    grains_out.sort(key=lambda x: x["score"], reverse=True)
 
     log_event(store, "retrieval", "grains_returned", {
         "query": query[:200],
@@ -462,6 +473,11 @@ def flux_feedback(
         except Exception as exc:
             logger.warning("pair_useful_with_priors failed: %s", exc)
         check_promotion(store, grain_id, trace_steps, cfg=cfg, now=now, trace_id=trace_id)
+        try:
+            from .epistemics import confirm
+            confirm(store, grain_id, cfg)  # corroboration raises epistemic confidence
+        except Exception:
+            pass
         action = "reinforced"
     else:
         penalize(store, trace_steps, [grain_id], cfg=cfg, now=now, trace_id=trace_id,

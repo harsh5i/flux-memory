@@ -351,8 +351,28 @@ class FluxService:
                         index=self._index,
                     )
                 item.result_future.put(outcome)
+                # Epistemic check runs after the store returns (off the caller's
+                # critical path) using the daemon's own LLM. Only fires when a
+                # near-neighbour exists, so most stores cost nothing.
+                gid, status = outcome
+                if status == "stored_wired":
+                    self._epistemic_check(gid, item.content)
             except Exception as exc:
                 item.result_future.put(exc)
+
+    def _epistemic_check(self, grain_id: str, content: str) -> None:
+        if not self._cfg.EPISTEMIC_CHECK_ENABLED:
+            return
+        try:
+            from .epistemics import check_on_store
+            grain = self._store.get_grain(grain_id)
+            if grain is None:
+                return
+            with self._store.lock():
+                check_on_store(self._store, grain, self._llm, self._emb,
+                               cfg=self._cfg, index=self._index)
+        except Exception as exc:
+            logger.error("epistemic check failed: %s", exc)
 
     def _health_tick_loop(self) -> None:
         """Compute health on a timer so warnings fire alerts even when nothing

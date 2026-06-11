@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS conduits (
     use_count   INTEGER NOT NULL DEFAULT 0,
     direction   TEXT NOT NULL DEFAULT 'forward',  -- forward | bidirectional
     decay_class TEXT NOT NULL DEFAULT 'working',  -- core | working | ephemeral
+    relation    TEXT NOT NULL DEFAULT 'related',  -- related | contradicts | supersedes | supports | caused_by
     UNIQUE(from_id, to_id)
 );
 

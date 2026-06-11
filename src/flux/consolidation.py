@@ -101,6 +101,11 @@ def find_candidates(store: FluxStore, cfg: Config = DEFAULT_CONFIG,
                    if j not in claimed]
         if len(members) < cfg.DREAM_MIN_CLUSTER:
             continue
+        # Cap clump size: a 120-grain "clump" is a smeared topic whose centroid
+        # is meaningless and which no synthesis can embed near. Keep the tightest
+        # members (highest mutual similarity to the seed).
+        if len(members) > cfg.DREAM_MAX_CLUSTER:
+            members = sorted(members, key=lambda j: -sims[i][j])[:cfg.DREAM_MAX_CLUSTER]
         claimed.update(members)
         clumps.append([ids[j] for j in members])
         if len(clumps) >= cfg.DREAM_MAX_PER_CYCLE:

@@ -70,6 +70,7 @@ class Conduit:
     use_count: int = 0
     direction: ConduitDirection = "forward"
     decay_class: ConduitDecayClass = "working"
+    relation: str = "related"
 
 
 @dataclass
