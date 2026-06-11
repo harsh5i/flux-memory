@@ -327,7 +327,7 @@ def chronicle_data(store: FluxStore, max_edges: int = 8000) -> dict:
     label_rows = store.conn.execute(
         """
         SELECT m.cluster_id, e.feature, m.weight FROM entry_cluster_membership m
-        JOIN entry_points e ON e.id = m.entry_id
+        JOIN entries e ON e.id = m.entry_id
         ORDER BY m.cluster_id, m.weight DESC
         """
     ).fetchall()
