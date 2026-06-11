@@ -5,10 +5,10 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%;overflow:hidden;background:#020408;font-family:'IBM Plex Mono',monospace;color:#c8daf0}
+html,body{height:100%;overflow:hidden;background:#000;font-family:'IBM Plex Mono',monospace;color:#c8daf0}
 .shell{height:100%;display:flex;flex-direction:column}
 
-.topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid rgba(80,120,200,0.15);flex:0 0 auto;flex-wrap:wrap}
+.topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid rgba(80,120,200,0.15);flex:0 0 auto;flex-wrap:wrap;background:#000}
 .flux-nav{position:relative;font-size:13px;letter-spacing:.06em;color:#22d3ee;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;z-index:60}
 .flux-nav-arrow{font-size:9px;opacity:.5}
 .flux-nav-menu{display:none;position:absolute;top:24px;left:-8px;min-width:240px;background:rgba(4,9,22,0.98);border:1px solid rgba(80,120,200,0.25);border-radius:7px;padding:5px 0;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
@@ -29,7 +29,7 @@ html,body{height:100%;overflow:hidden;background:#020408;font-family:'IBM Plex M
 @keyframes lp{0%,100%{opacity:1}50%{opacity:.25}}
 .ticker{font-size:9px;color:rgba(200,218,240,0.45);max-width:330px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-.stage-wrap{flex:1 1 auto;position:relative;min-height:0}
+.stage-wrap{flex:1 1 auto;position:relative;min-height:0;background:#000}
 canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
 
 .legend{position:absolute;top:12px;left:14px;font-size:9px;color:rgba(200,218,240,0.55);background:rgba(4,9,22,0.75);border:1px solid rgba(80,120,200,0.15);border-radius:7px;padding:9px 12px;line-height:2;z-index:55}
@@ -38,7 +38,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
 .legend label{display:block;cursor:pointer;user-select:none}
 .legend input{vertical-align:-1px;margin-right:5px;accent-color:#22d3ee}
 
-.controls{flex:0 0 auto;padding:10px 18px 14px;border-top:1px solid rgba(80,120,200,0.15);display:flex;align-items:center;gap:14px}
+.controls{flex:0 0 auto;padding:10px 18px 14px;border-top:1px solid rgba(80,120,200,0.15);display:flex;align-items:center;gap:14px;background:#000}
 .play-btn{background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.45);color:#22d3ee;width:34px;height:30px;border-radius:5px;cursor:pointer;font-size:12px;font-family:inherit}
 .play-btn:hover{background:rgba(34,211,238,0.2)}
 .now-btn{background:none;border:1px solid rgba(52,211,153,0.4);color:#34d399;height:30px;padding:0 12px;border-radius:5px;cursor:pointer;font-size:10px;font-family:inherit}
