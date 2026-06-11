@@ -498,8 +498,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head>
         <a href="/" class="flux-nav-item active">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
         <a href="/mycelium" class="flux-nav-item">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
         <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
-        <a href="/pool" class="flux-nav-item">Pool<span class="flux-nav-item-sub">reflecting pool visualization</span></a>
-        <a href="/nebula" class="flux-nav-item">Nebula<span class="flux-nav-item-sub">breathing 3D cloud</span></a>
+        <a href="/vitals" class="flux-nav-item">Vitals<span class="flux-nav-item-sub">signal timelines + learning curve</span></a>
       </div>
     </div>
     <div id="status-badge" class="badge-warning">
@@ -2167,6 +2166,7 @@ def run_dashboard(
         "/api/events": 3.0,
         "/api/graph": 8.0,
         "/api/clusters": 8.0,
+        "/api/vitals": 30.0,
     }
 
     def _get_inflight_lock(key: str) -> _threading.Lock:
@@ -2209,10 +2209,8 @@ def run_dashboard(
                 self._send(200, "text/html; charset=utf-8", _load_view("mycelium.html"))
             elif path == "/globe":
                 self._send(200, "text/html; charset=utf-8", _load_view("globe.html"))
-            elif path == "/pool":
-                self._send(200, "text/html; charset=utf-8", _load_view("pool.html"))
-            elif path == "/nebula":
-                self._send(200, "text/html; charset=utf-8", _load_view("nebula.html"))
+            elif path == "/vitals":
+                self._send(200, "text/html; charset=utf-8", _load_view("vitals.html"))
             elif path == "/mobile-preview":
                 self._send(200, "text/html; charset=utf-8", _MOBILE_PREVIEW_HTML.encode())
             elif path == "/api/health":
@@ -2236,6 +2234,20 @@ def run_dashboard(
                 with store.lock():
                     data = _trace_details(store, trace_id=trace_id)
                 self._send(200, "application/json", json.dumps(data, default=str).encode())
+            elif path == "/api/vitals":
+                query = parse_qs(parsed.query)
+                try:
+                    hours = float(query.get("hours", ["168"])[0])
+                except ValueError:
+                    hours = 168.0
+                hours = max(1.0, min(hours, 24.0 * 30))
+                key = f"/api/vitals?hours={hours}"
+                _CACHE_TTL.setdefault(key, _CACHE_TTL["/api/vitals"])
+                def _compute():
+                    from .health import vitals_history
+                    with store.lock():
+                        return vitals_history(store, hours=hours)
+                self._send(200, "application/json", _cached_json(key, _compute))
             elif path == "/api/events":
                 query = parse_qs(parsed.query)
                 try:

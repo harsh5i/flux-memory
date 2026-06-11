@@ -171,3 +171,33 @@ def test_remote_service_maps_store_and_feedback(monkeypatch):
 def test_probe_service_false_when_nothing_listening():
     cfg = Config(REST_PORT=1)  # nothing listens on port 1
     assert remote.probe_service(cfg) is False
+
+
+# ----------------------------------------------------------- vitals history
+
+def test_flux_health_persists_snapshot(store):
+    flux_health(store, Config())
+    count = store.conn.execute("SELECT COUNT(*) FROM health_log").fetchone()[0]
+    assert count >= 10  # one row per signal
+    distinct_ts = store.conn.execute(
+        "SELECT COUNT(DISTINCT timestamp) FROM health_log").fetchone()[0]
+    assert distinct_ts == 1
+
+
+def test_health_snapshot_throttled(store):
+    flux_health(store, Config())
+    first = store.conn.execute("SELECT COUNT(*) FROM health_log").fetchone()[0]
+    flux_health(store, Config())  # immediately again -> throttled
+    second = store.conn.execute("SELECT COUNT(*) FROM health_log").fetchone()[0]
+    assert second == first
+
+
+def test_vitals_history_shape(store):
+    from flux.health import vitals_history
+    flux_health(store, Config())
+    v = vitals_history(store, hours=24)
+    assert "retrieval_success_rate" in v["series"]
+    point = v["series"]["retrieval_success_rate"][0]
+    assert len(point) == 3  # [timestamp, value, healthy]
+    assert "orphan_rate" in v["ranges"]
+    assert v["window_hours"] == 24

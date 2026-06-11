@@ -1154,6 +1154,79 @@ def _caller_provenance_summary(store: FluxStore, cutoff: str) -> list[dict]:
     return summary
 
 
+_HEALTH_LOG_MIN_INTERVAL_MINUTES = 5.0
+_HEALTH_LOG_RETENTION_DAYS = 30
+
+
+def _persist_health_snapshot(store: FluxStore, signal_results: dict[str, dict],
+                             now: datetime) -> None:
+    """Append one row per signal to health_log so the Vitals view can plot
+    trends. Throttled so frequent dashboard polls don't flood the table;
+    rows older than the retention window are pruned."""
+    ts = now.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+    last = store.conn.execute(
+        "SELECT MAX(timestamp) AS t FROM health_log"
+    ).fetchone()
+    if last and last["t"]:
+        try:
+            last_dt = datetime.fromisoformat(last["t"].replace("Z", "+00:00"))
+            if now.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=None)
+            if (now - last_dt) < timedelta(minutes=_HEALTH_LOG_MIN_INTERVAL_MINUTES):
+                return
+        except ValueError:
+            pass
+    rows = [
+        (new_id(), ts, name, float(res["value"]), 1 if res["healthy"] else 0,
+         _HEALTHY_RANGES.get(name, {}).get("window", "short"))
+        for name, res in signal_results.items()
+    ]
+    store.conn.executemany(
+        "INSERT INTO health_log (id, timestamp, signal, value, healthy, window) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    cutoff = (now - timedelta(days=_HEALTH_LOG_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+    store.conn.execute("DELETE FROM health_log WHERE timestamp < ?", (cutoff,))
+
+
+def vitals_history(store: FluxStore, hours: float = 168.0) -> dict:
+    """Time series for every signal over the window, plus warning spans —
+    the data behind the Vitals view."""
+    now = utcnow()
+    cutoff = (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+    rows = store.conn.execute(
+        """
+        SELECT timestamp, signal, value, healthy FROM health_log
+        WHERE timestamp >= ? ORDER BY timestamp
+        """,
+        (cutoff,),
+    ).fetchall()
+    series: dict[str, list] = {}
+    for r in rows:
+        series.setdefault(r["signal"], []).append(
+            [r["timestamp"], r["value"], bool(r["healthy"])]
+        )
+    warn_rows = store.conn.execute(
+        """
+        SELECT signal, severity, first_seen, last_seen, cleared_at FROM warnings
+        WHERE last_seen >= ? OR cleared_at IS NULL
+        """,
+        (cutoff,),
+    ).fetchall()
+    ranges = {
+        name: {"min": spec.get("min"), "max": spec.get("max")}
+        for name, spec in _HEALTHY_RANGES.items()
+    }
+    return {
+        "series": series,
+        "warnings": [dict(r) for r in warn_rows],
+        "ranges": ranges,
+        "window_hours": hours,
+        "computed_at": now.strftime("%Y-%m-%dT%H:%M:%S") + "Z",
+    }
+
+
 def _overall_status(warnings: list[dict]) -> str:
     if any(w["severity"] == "CRITICAL" for w in warnings):
         return "critical"
@@ -1243,6 +1316,8 @@ def flux_health(
         )
     else:
         _clear_warning(store, "provenance_skew", now)
+
+    _persist_health_snapshot(store, signal_results, now)
 
     active_warnings = _get_active_warnings(store)
     status = _overall_status(active_warnings)

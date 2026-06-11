@@ -1,0 +1,246 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flux Memory — Vitals</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="/static/d3.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{min-height:100%;background:#020408;font-family:'IBM Plex Mono',monospace;color:#c8daf0}
+body{overflow-y:auto}
+.shell{max-width:1400px;margin:0 auto;padding:0 18px 40px}
+
+.topbar{display:flex;align-items:center;gap:18px;padding:14px 0;border-bottom:1px solid rgba(80,120,200,0.15);position:sticky;top:0;background:#020408;z-index:40}
+.flux-nav{position:relative;font-size:13px;letter-spacing:.06em;color:#22d3ee;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none}
+.flux-nav-arrow{font-size:9px;opacity:.5}
+.flux-nav-menu{display:none;position:absolute;top:24px;left:-8px;min-width:230px;background:rgba(4,9,22,0.98);border:1px solid rgba(80,120,200,0.25);border-radius:7px;padding:5px 0;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
+.flux-nav:hover .flux-nav-menu{display:block}
+.flux-nav-item{display:block;padding:7px 14px;font-size:11px;color:#8fa8c8;text-decoration:none;border-left:2px solid transparent}
+.flux-nav-item:hover{background:rgba(80,120,200,0.12);color:#c8daf0}
+.flux-nav-item.active{color:#22d3ee;border-left-color:#22d3ee}
+.flux-nav-item-sub{font-size:9px;opacity:.4;display:block;margin-top:1px}
+
+.range-picker{display:flex;gap:2px;margin-left:auto}
+.range-btn{background:none;border:1px solid rgba(80,120,200,0.25);color:rgba(200,218,240,0.55);font-size:11px;padding:4px 12px;cursor:pointer;font-family:inherit}
+.range-btn:first-child{border-radius:4px 0 0 4px}
+.range-btn:last-child{border-radius:0 4px 4px 0}
+.range-btn.active{background:rgba(34,211,238,0.12);color:#22d3ee;border-color:rgba(34,211,238,0.5)}
+.tmeta{font-size:10px;color:rgba(200,218,240,0.3);letter-spacing:.04em;margin-left:14px}
+
+.intro{font-size:10px;color:rgba(200,218,240,0.35);padding:14px 2px 4px;letter-spacing:.04em;line-height:1.6}
+.group-title{font-size:11px;letter-spacing:.18em;color:#22d3ee;opacity:.7;text-transform:uppercase;padding:22px 2px 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+
+.card{background:rgba(8,14,28,0.7);border:1px solid rgba(80,120,200,0.14);border-radius:8px;padding:12px 14px 8px;transition:border-color .15s}
+.card:hover{border-color:rgba(34,211,238,0.35)}
+.card.unhealthy{border-color:rgba(244,63,94,0.45)}
+.card-head{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.card-name{font-size:11px;color:#8fa8c8;letter-spacing:.04em}
+.card-now{margin-left:auto;font-size:15px;font-weight:500;color:#e8f2ff}
+.card-now.bad{color:#fb7185}
+.card-delta{font-size:10px;color:rgba(200,218,240,0.4)}
+.card-delta.up{color:#34d399}.card-delta.down{color:#fb7185}
+.card-range{font-size:9px;color:rgba(200,218,240,0.28);margin-bottom:4px}
+.spark{display:block;width:100%;height:74px}
+.empty-note{font-size:11px;color:rgba(200,218,240,0.35);padding:40px;text-align:center;line-height:1.8}
+.tip{position:fixed;pointer-events:none;background:rgba(4,9,22,0.97);border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 11px;font-size:10px;color:#c8daf0;z-index:50;opacity:0;transition:opacity .1s;box-shadow:0 6px 24px rgba(0,0,0,0.7);max-width:240px;line-height:1.5}
+.tip.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<div class="topbar">
+  <div class="flux-nav" id="flux-nav">
+    <span>flux/memory</span>
+    <span class="flux-nav-arrow">▾</span>
+    <div class="flux-nav-menu">
+      <a href="/" class="flux-nav-item">Knowledge Graph<span class="flux-nav-item-sub">force-directed D3 view</span></a>
+      <a href="/mycelium" class="flux-nav-item">Mycelium<span class="flux-nav-item-sub">organic tendrils + flow</span></a>
+      <a href="/globe" class="flux-nav-item">Globe<span class="flux-nav-item-sub">3D Fibonacci sphere</span></a>
+      <a href="/vitals" class="flux-nav-item active">Vitals<span class="flux-nav-item-sub">signal timelines + learning curve</span></a>
+    </div>
+  </div>
+  <div class="range-picker" id="range-picker">
+    <button class="range-btn" data-hours="24">24h</button>
+    <button class="range-btn active" data-hours="168">7d</button>
+    <button class="range-btn" data-hours="720">30d</button>
+  </div>
+  <span class="tmeta" id="hdr-meta">loading…</span>
+</div>
+
+<div class="intro">
+  Every health signal, plotted over time. Green band = healthy range. Red segments and
+  shaded spans mark unhealthy periods and active warnings — a regression shows up here
+  as a cliff, not a surprise. Snapshots accumulate on each health tick (15 min).
+</div>
+
+<div id="content"></div>
+<div class="tip" id="tip"></div>
+</div>
+
+<script>
+const GROUPS = [
+  ["Learning", ["retrieval_success_rate","fallback_trigger_rate","feedback_compliance_rate","avg_hops_per_retrieval"]],
+  ["Structure", ["orphan_rate","highway_count","core_grain_count","avg_conduit_weight","dormant_grain_rate"]],
+  ["Activity", ["highway_growth_rate","shortcut_creation_rate","conduit_dissolution_rate","promotion_events","avg_weight_drop_on_failure"]],
+];
+const PCT = new Set(["retrieval_success_rate","fallback_trigger_rate","feedback_compliance_rate","orphan_rate","dormant_grain_rate"]);
+const tip = document.getElementById('tip');
+let hours = 168;
+
+function fmt(sig, v) {
+  if (v == null || isNaN(v)) return "—";
+  if (PCT.has(sig)) return (v * 100).toFixed(v < 0.1 ? 1 : 0) + "%";
+  return v >= 100 ? Math.round(v).toString() : (+v.toFixed(2)).toString();
+}
+
+function rangeLabel(r) {
+  if (!r) return "";
+  const lo = r.min == null ? "0" : r.min, hi = r.max == null ? "∞" : r.max;
+  return `healthy ${lo} – ${hi}`;
+}
+
+async function load() {
+  const resp = await fetch(`/api/vitals?hours=${hours}`);
+  const data = await resp.json();
+  render(data);
+}
+
+function render(data) {
+  const content = document.getElementById('content');
+  content.innerHTML = "";
+  const series = data.series || {};
+  const haveAny = Object.values(series).some(pts => pts.length > 0);
+  document.getElementById('hdr-meta').textContent =
+    haveAny ? `window: ${hours >= 168 ? (hours/24)+"d" : hours+"h"} · updated ${new Date().toLocaleTimeString()}` : "collecting…";
+
+  if (!haveAny) {
+    content.innerHTML = `<div class="empty-note">No history yet in this window.<br>
+      Snapshots are written on every health computation (service tick: 15 min) —<br>
+      come back after a few ticks and the curves will be here.</div>`;
+    return;
+  }
+
+  for (const [title, signals] of GROUPS) {
+    const present = signals.filter(sig => (series[sig] || []).length > 0);
+    if (!present.length) continue;
+    const h = document.createElement('div');
+    h.className = 'group-title'; h.textContent = title;
+    content.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    content.appendChild(grid);
+    for (const sig of present) grid.appendChild(card(sig, series[sig], data.ranges[sig], data.warnings));
+  }
+}
+
+function card(sig, pts, range, warnings) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  const last = pts[pts.length - 1];
+  const first = pts[0];
+  const now = last[1], healthyNow = last[2];
+  if (!healthyNow) el.classList.add('unhealthy');
+  const delta = now - first[1];
+  const deltaCls = Math.abs(delta) < 1e-9 ? "" : (delta > 0 ? "up" : "down");
+  const deltaTxt = Math.abs(delta) < 1e-9 ? "flat" : (delta > 0 ? "▲ " : "▼ ") + fmt(sig, Math.abs(delta));
+
+  el.innerHTML = `
+    <div class="card-head">
+      <span class="card-name">${sig.replaceAll("_"," ")}</span>
+      <span class="card-delta ${deltaCls}">${deltaTxt}</span>
+      <span class="card-now ${healthyNow ? "" : "bad"}">${fmt(sig, now)}</span>
+    </div>
+    <div class="card-range">${rangeLabel(range)}</div>`;
+  el.appendChild(spark(sig, pts, range, warnings));
+  return el;
+}
+
+function spark(sig, pts, range, warnings) {
+  const W = 360, H = 74, M = {t: 6, r: 4, b: 14, l: 4};
+  const svg = d3.create("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("class", "spark");
+  const parse = s => new Date(s.replace("Z", "+00:00"));
+  const xs = pts.map(p => parse(p[0]));
+  const x = d3.scaleTime().domain(d3.extent(xs)).range([M.l, W - M.r]);
+
+  const vals = pts.map(p => p[1]);
+  let lo = d3.min(vals), hi = d3.max(vals);
+  if (range) {
+    if (range.min != null) lo = Math.min(lo, range.min);
+    if (range.max != null) hi = Math.max(hi, range.max);
+  }
+  if (hi === lo) { hi += 1; lo = Math.max(0, lo - 1); }
+  const pad = (hi - lo) * 0.12;
+  const y = d3.scaleLinear().domain([lo - pad, hi + pad]).range([H - M.b, M.t]);
+
+  // healthy band
+  if (range && (range.min != null || range.max != null)) {
+    const bandTop = range.max != null ? y(range.max) : M.t;
+    const bandBot = range.min != null ? y(range.min) : H - M.b;
+    svg.append("rect").attr("x", M.l).attr("width", W - M.l - M.r)
+      .attr("y", Math.min(bandTop, bandBot)).attr("height", Math.abs(bandBot - bandTop))
+      .attr("fill", "rgba(52,211,153,0.07)");
+  }
+
+  // warning spans for this signal
+  for (const w of warnings || []) {
+    if (w.signal !== sig) continue;
+    const x0 = x(parse(w.first_seen)), x1 = x(w.cleared_at ? parse(w.cleared_at) : xs[xs.length - 1]);
+    if (isNaN(x0) || isNaN(x1)) continue;
+    svg.append("rect").attr("x", Math.max(M.l, x0)).attr("width", Math.max(2, x1 - x0))
+      .attr("y", M.t).attr("height", H - M.t - M.b).attr("fill", "rgba(244,63,94,0.08)");
+  }
+
+  // line, split into healthy/unhealthy colored segments
+  const line = d3.line().x((p, i) => x(xs[i])).y(p => y(p[1]));
+  let seg = [], segHealthy = pts[0][2];
+  const flush = () => {
+    if (seg.length > 1) {
+      svg.append("path").attr("d", line(seg)).attr("fill", "none")
+        .attr("stroke", segHealthy ? "#22d3ee" : "#fb7185").attr("stroke-width", 1.4);
+    }
+    seg = [];
+  };
+  pts.forEach((p, i) => {
+    if (p[2] !== segHealthy) { seg.push(p); flush(); segHealthy = p[2]; }
+    seg.push(p);
+    seg.idx = i;
+  });
+  flush();
+
+  // last point dot
+  svg.append("circle").attr("cx", x(xs[xs.length - 1])).attr("cy", y(vals[vals.length - 1]))
+    .attr("r", 2.4).attr("fill", pts[pts.length - 1][2] ? "#22d3ee" : "#fb7185");
+
+  // hover
+  svg.append("rect").attr("x", 0).attr("y", 0).attr("width", W).attr("height", H)
+    .attr("fill", "transparent")
+    .on("mousemove", ev => {
+      const [mx] = d3.pointer(ev);
+      const t = x.invert(mx);
+      const i = d3.bisector(d => d).left(xs, t);
+      const j = Math.max(0, Math.min(pts.length - 1, i));
+      tip.innerHTML = `<b>${fmt(sig, pts[j][1])}</b> ${pts[j][2] ? "" : "· <span style='color:#fb7185'>unhealthy</span>"}<br>${xs[j].toLocaleString()}`;
+      tip.style.left = (ev.clientX + 14) + "px";
+      tip.style.top = (ev.clientY - 10) + "px";
+      tip.classList.add("show");
+    })
+    .on("mouseleave", () => tip.classList.remove("show"));
+
+  return svg.node();
+}
+
+document.getElementById('range-picker').addEventListener('click', ev => {
+  const btn = ev.target.closest('.range-btn');
+  if (!btn) return;
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  hours = +btn.dataset.hours;
+  load();
+});
+
+load();
+setInterval(load, 60_000);
+</script>
+</body></html>
