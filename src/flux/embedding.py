@@ -140,6 +140,57 @@ def top_k_nearest(
     return [(grain_ids[i], float(sims[i])) for i in top_indices]
 
 
+# ----------------------------------------------------------- in-memory index
+
+class EmbeddingIndex:
+    """Thread-safe in-memory mirror of grain_embeddings for active grains.
+
+    Avoids re-loading and JSON-parsing the full embedding matrix from SQLite
+    on every store (dedup + bootstrap wiring) and every vector fallback.
+    Appended on store; refreshed periodically (e.g. on the service health
+    tick) to drop grains that went dormant/archived since the last refresh.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._grain_ids: list[str] = []
+        self._matrix: np.ndarray = np.empty((0, 0), dtype=np.float32)
+
+    def refresh(self, store: FluxStore) -> int:
+        """Reload from the database. Returns the number of grains indexed."""
+        grain_ids, matrix = load_all_embeddings(store)
+        with self._lock:
+            self._grain_ids = grain_ids
+            self._matrix = matrix
+            return len(grain_ids)
+
+    def append(self, grain_id: str, embedding: list[float]) -> None:
+        vec = np.array(embedding, dtype=np.float32).reshape(1, -1)
+        with self._lock:
+            if grain_id in self._grain_ids:
+                return
+            if self._matrix.size == 0:
+                self._grain_ids = [grain_id]
+                self._matrix = vec
+            else:
+                self._grain_ids.append(grain_id)
+                self._matrix = np.vstack([self._matrix, vec])
+
+    def snapshot(self) -> tuple[list[str], np.ndarray]:
+        """Return (grain_ids, matrix) consistent with each other. The caller
+        must treat both as read-only — append/refresh replace, never mutate."""
+        with self._lock:
+            return self._grain_ids[:], self._matrix
+
+    def top_k(self, embedding: list[float], k: int) -> list[tuple[str, float]]:
+        grain_ids, matrix = self.snapshot()
+        return top_k_nearest(embedding, grain_ids, matrix, k)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._grain_ids)
+
+
 # ------------------------------------------------------------------ vector fallback
 
 def vector_fallback(
@@ -148,6 +199,7 @@ def vector_fallback(
     backend: EmbeddingBackend,
     existing_results: list[tuple[str, float]],
     cfg: Config = DEFAULT_CONFIG,
+    index: EmbeddingIndex | None = None,
 ) -> list[tuple[str, float]]:
     """Vector fallback retrieval (§4.8).
 
@@ -155,9 +207,15 @@ def vector_fallback(
     existing graph results (highest score wins duplicates), returns top-K.
     Fires when propagation confidence < FALLBACK_CONFIDENCE_THRESHOLD.
 
+    When ``index`` is provided the in-memory matrix is used instead of
+    re-loading all embeddings from SQLite.
+
     Returns merged list of (grain_id, score) sorted descending.
     """
-    grain_ids, matrix = load_all_embeddings(store)
+    if index is not None:
+        grain_ids, matrix = index.snapshot()
+    else:
+        grain_ids, matrix = load_all_embeddings(store)
     if not grain_ids:
         return existing_results
 

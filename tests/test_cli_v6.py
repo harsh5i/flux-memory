@@ -87,7 +87,7 @@ class TestRebuildGraphCommand:
     def test_rebuild_graph_command_reports_stats(self, tmp_path, monkeypatch):
         _make_instance(tmp_path, monkeypatch)
 
-        def fake_rebuild(name, limit=None):
+        def fake_rebuild(name, limit=None, use_llm=False):
             assert name == "test1"
             assert limit == 12
             return {
@@ -118,7 +118,7 @@ class TestRebuildGraphCommand:
     def test_rebuild_graph_reports_locked_database(self, tmp_path, monkeypatch):
         _make_instance(tmp_path, monkeypatch)
 
-        def fake_rebuild(name, limit=None):
+        def fake_rebuild(name, limit=None, use_llm=False):
             raise sqlite3.OperationalError("database is locked")
 
         monkeypatch.setattr(flux_cli, "_rebuild_instance_graph", fake_rebuild)

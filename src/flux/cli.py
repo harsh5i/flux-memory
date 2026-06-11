@@ -180,7 +180,8 @@ def _warmup_embedding_model(cfg) -> tuple[str, int, float]:
     return cfg.EMBEDDING_MODEL_NAME, len(vector), elapsed
 
 
-def _rebuild_instance_graph(name: str, limit: int | None = None) -> dict:
+def _rebuild_instance_graph(name: str, limit: int | None = None,
+                            use_llm: bool = False) -> dict:
     from flux.config import Config
     from flux.embedding import SentenceTransformerBackend
     from flux.extraction import rebuild_missing_graph
@@ -189,10 +190,11 @@ def _rebuild_instance_graph(name: str, limit: int | None = None) -> dict:
 
     cfg_path = _config_file(name)
     cfg = Config.from_yaml(cfg_path) if cfg_path.exists() else Config()
+    llm = OllamaBackend(cfg) if use_llm else None
     with FluxStore(_db_file(name)) as store:
         return rebuild_missing_graph(
             store,
-            OllamaBackend(cfg),
+            llm,
             SentenceTransformerBackend(cfg.EMBEDDING_MODEL_NAME),
             cfg,
             limit=limit,
@@ -555,7 +557,10 @@ try:
     @click.option("--name", default=_DEFAULT_NAME, show_default=True)
     @click.option("--limit", type=int, default=None,
                   help="Maximum number of grains to rebuild.")
-    def rebuild_graph(name: str, limit: int | None) -> None:
+    @click.option("--use-llm", is_flag=True, default=False,
+                  help="Extract entry features with the LLM (much slower); "
+                       "default uses fallback tokenization.")
+    def rebuild_graph(name: str, limit: int | None, use_llm: bool) -> None:
         """Backfill embeddings and conduits for existing bare grains."""
         cfg_path = _config_file(name)
         if not cfg_path.exists():
@@ -564,7 +569,7 @@ try:
 
         click.echo(f"Rebuilding graph artifacts for instance '{name}'...")
         try:
-            stats = _rebuild_instance_graph(name, limit)
+            stats = _rebuild_instance_graph(name, limit, use_llm=use_llm)
         except sqlite3.OperationalError as exc:
             if "locked" in str(exc).lower():
                 click.secho(

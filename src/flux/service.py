@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import Config, DEFAULT_CONFIG
-from .embedding import EmbeddingBackend, SentenceTransformerBackend
+from .embedding import EmbeddingBackend, EmbeddingIndex, SentenceTransformerBackend
 from .graph import utcnow
 from .health import log_event
 from .llm import LLMBackend, OllamaBackend
@@ -116,11 +116,14 @@ class FluxService:
         self._cfg = cfg
 
         self._rate_limiter = _SlidingWindowRateLimiter(cfg.MAX_GRAINS_PER_MINUTE)
+        self._index = EmbeddingIndex()
         self._write_queue: queue.Queue[_WriteItem | None] = queue.Queue()
         self._feedback_queue: queue.Queue[_FeedbackItem | None] = queue.Queue()
         self._executor: ThreadPoolExecutor | None = None
         self._write_thread: threading.Thread | None = None
         self._feedback_thread: threading.Thread | None = None
+        self._health_thread: threading.Thread | None = None
+        self._health_tick_stop = threading.Event()
         self._running = False
 
     # ---------------------------------------------------------------- lifecycle
@@ -141,6 +144,17 @@ class FluxService:
         )
         self._write_thread.start()
         self._feedback_thread.start()
+        try:
+            indexed = self._index.refresh(self._store)
+            logger.info("embedding index loaded: %d grains", indexed)
+        except Exception as exc:
+            logger.error("embedding index load failed: %s", exc)
+        if self._cfg.HEALTH_TICK_MINUTES > 0:
+            self._health_tick_stop.clear()
+            self._health_thread = threading.Thread(
+                target=self._health_tick_loop, name="flux-health-tick", daemon=True
+            )
+            self._health_thread.start()
         log_event(self._store, "system", "startup", {"service": "FluxService"})
         logger.info("FluxService started (read_workers=%d)", self._cfg.READ_WORKERS)
 
@@ -148,6 +162,7 @@ class FluxService:
         if not self._running:
             return
         self._running = False
+        self._health_tick_stop.set()
         # Poison pills.
         self._write_queue.put(None)
         self._feedback_queue.put(None)
@@ -177,6 +192,7 @@ class FluxService:
                 emb=self._emb,
                 cfg=self._cfg,
                 caller_id=caller_id,
+                index=self._index,
             )
 
         with FluxStore(self._store.db_path) as read_store:
@@ -187,6 +203,7 @@ class FluxService:
                 emb=self._emb,
                 cfg=self._cfg,
                 caller_id=caller_id,
+                index=self._index,
             )
 
     def store(self, content: str, provenance: str = "ai_stated",
@@ -320,10 +337,25 @@ class FluxService:
                         emb=self._emb,
                         cfg=self._cfg,
                         caller_id=item.caller_id,
+                        index=self._index,
                     )
                 item.result_future.put(outcome)
             except Exception as exc:
                 item.result_future.put(exc)
+
+    def _health_tick_loop(self) -> None:
+        """Compute health on a timer so warnings fire alerts even when nothing
+        is polling the dashboard or MCP health tool."""
+        interval = self._cfg.HEALTH_TICK_MINUTES * 60.0
+        while not self._health_tick_stop.wait(interval):
+            try:
+                self.health()
+            except Exception as exc:
+                logger.error("health tick failed: %s", exc)
+            try:
+                self._index.refresh(self._store)
+            except Exception as exc:
+                logger.error("embedding index refresh failed: %s", exc)
 
     def _feedback_worker(self) -> None:
         while True:

@@ -143,6 +143,11 @@ class Config:
     # new grain is inserted. Set > 1.0 to disable.
     DEDUP_SIMILARITY_THRESHOLD: float = 0.90
 
+    # --- Health tick ---
+    # The service computes flux_health on this interval so warnings (and their
+    # alerts) fire even when nothing polls the dashboard. 0 disables the tick.
+    HEALTH_TICK_MINUTES: float = 15.0
+
     # --- Health alerts ---
     # When enabled, newly fired (or re-fired) health warnings are pushed to a
     # Telegram chat. Credentials belong in the instance flux.yaml, not the repo.

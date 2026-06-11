@@ -54,7 +54,12 @@ class MockEmbeddingBackend:
     model_name = "mock-embedding"
 
     def embed(self, text: str) -> list[float]:
-        rng = [((hash(text + str(i)) % 1000) / 1000.0) for i in range(self.DIM)]
+        import hashlib
+        def _stable_hash(value: str) -> int:
+            return int(hashlib.md5(value.encode()).hexdigest(), 16)
+        # Centre on 0 so distinct texts are not all crowded into the positive
+        # orthant (which would make every pair ~0.75 similar).
+        rng = [((_stable_hash(text + str(i)) % 1000) / 500.0) - 1.0 for i in range(self.DIM)]
         norm = math.sqrt(sum(x * x for x in rng)) or 1.0
         return [x / norm for x in rng]
 

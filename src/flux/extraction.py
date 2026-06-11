@@ -21,7 +21,13 @@ import logging
 from datetime import datetime
 
 from .config import Config, DEFAULT_CONFIG
-from .embedding import EmbeddingBackend, store_embedding, top_k_nearest, load_all_embeddings
+from .embedding import (
+    EmbeddingBackend,
+    EmbeddingIndex,
+    load_all_embeddings,
+    store_embedding,
+    top_k_nearest,
+)
 from .graph import Conduit, Entry, Grain, new_id, utcnow
 from .health import log_event
 from .llm import (
@@ -185,12 +191,17 @@ def store_atomic_grain_ex(
     store: FluxStore,
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
+    index: EmbeddingIndex | None = None,
 ) -> tuple[str, str]:
     """Store one already-atomic grain and wire it into the graph.
 
     This is the caller_extracts path: the caller has already decided the memory
     is worth storing, so Flux should still create embeddings and entry conduits
     even when the local LLM cannot perform full grain extraction.
+
+    When ``index`` is provided, the in-memory embedding matrix is used for the
+    dedup check and neighbour wiring (instead of re-loading every embedding
+    from SQLite), and the new grain's embedding is appended to it.
 
     Returns ``(grain_id, status)`` where status is one of:
       - ``"duplicate"``: an existing active grain is >= DEDUP_SIMILARITY_THRESHOLD
@@ -204,7 +215,10 @@ def store_atomic_grain_ex(
     existing_grain_ids: list[str] = []
     existing_matrix = None
     try:
-        existing_grain_ids, existing_matrix = load_all_embeddings(store)
+        if index is not None:
+            existing_grain_ids, existing_matrix = index.snapshot()
+        else:
+            existing_grain_ids, existing_matrix = load_all_embeddings(store)
         embedding = embedding_backend.embed(content)
     except Exception as exc:
         logger.error("store_atomic_grain: embedding failed: %s", exc)
@@ -237,6 +251,8 @@ def store_atomic_grain_ex(
     _wire_grain_conduits(store, grain, embedding, existing_grain_ids,
                          existing_matrix, cfg, now)
     store_embedding(store, grain.id, embedding, model_name, now)
+    if index is not None:
+        index.append(grain.id, embedding)
     _connect_to_entries(grain, llm, store, cfg, now)
     return grain.id, "stored_wired"
 
@@ -283,8 +299,14 @@ def backfill_grain_graph(
     store: FluxStore,
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
+    index: EmbeddingIndex | None = None,
 ) -> dict:
-    """Create missing embedding, neighbour conduits, and entry conduits for a grain."""
+    """Create missing embedding, neighbour conduits, and entry conduits for a grain.
+
+    Passing ``index`` avoids re-loading the full embedding matrix from SQLite
+    (essential when backfilling many grains in a loop); the new embedding is
+    appended to it so later grains can wire to earlier ones.
+    """
     now = now or utcnow()
     before_edges = _count_conduits(store)
     embedding_created = False
@@ -295,7 +317,10 @@ def backfill_grain_graph(
     ).fetchone()
 
     if row is None:
-        existing_grain_ids, existing_matrix = load_all_embeddings(store)
+        if index is not None:
+            existing_grain_ids, existing_matrix = index.snapshot()
+        else:
+            existing_grain_ids, existing_matrix = load_all_embeddings(store)
         model_name = getattr(embedding_backend, "model_name", "unknown")
         try:
             embedding = embedding_backend.embed(grain.content)
@@ -306,6 +331,8 @@ def backfill_grain_graph(
             _wire_grain_conduits(store, grain, embedding, existing_grain_ids,
                                  existing_matrix, cfg, now)
             store_embedding(store, grain.id, embedding, model_name, now)
+            if index is not None:
+                index.append(grain.id, embedding)
 
     _connect_to_entries(grain, llm, store, cfg, now)
     after_edges = _count_conduits(store)
@@ -318,19 +345,28 @@ def backfill_grain_graph(
 
 def rebuild_missing_graph(
     store: FluxStore,
-    llm: LLMBackend,
+    llm: LLMBackend | None,
     embedding_backend: EmbeddingBackend,
     cfg: Config = DEFAULT_CONFIG,
     *,
     limit: int | None = None,
     now: datetime | None = None,
 ) -> dict:
-    """Backfill graph artifacts for active grains missing embeddings or inbound routes."""
+    """Backfill graph artifacts for active grains missing embeddings or inbound routes.
+
+    The embedding matrix is loaded once and grown in memory as grains are
+    backfilled, instead of re-loading it per grain. llm=None skips LLM feature
+    extraction (entry conduits fall back to tokenization) — roughly 60x faster
+    when an Ollama round-trip per grain is the alternative.
+    """
     now = now or utcnow()
     scanned = 0
     rebuilt = 0
     embeddings_created = 0
     conduits_created = 0
+
+    index = EmbeddingIndex()
+    index.refresh(store)
 
     for grain in store.iter_grains(status="active"):
         if limit is not None and rebuilt >= limit:
@@ -350,6 +386,7 @@ def rebuild_missing_graph(
             store=store,
             cfg=cfg,
             now=now,
+            index=index,
         )
         rebuilt += 1
         embeddings_created += 1 if stats["embedding_created"] else 0

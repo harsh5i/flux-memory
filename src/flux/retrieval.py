@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Any
 
 from .config import Config, DEFAULT_CONFIG
-from .embedding import EmbeddingBackend, vector_fallback
+from .embedding import EmbeddingBackend, EmbeddingIndex, vector_fallback
 from .expansion import expand_results
 from .extraction import (
     decompose_query,
@@ -142,6 +142,7 @@ def flux_store_ex(
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
     caller_id: str = "default",
+    index: EmbeddingIndex | None = None,
 ) -> tuple[str, str]:
     """Insert a single grain and create bootstrap conduits.
 
@@ -179,6 +180,7 @@ def flux_store_ex(
             store=store,
             cfg=cfg,
             now=now,
+            index=index,
         )
 
     if llm is not None and emb is not None:
@@ -229,6 +231,7 @@ def flux_retrieve(
     cfg: Config = DEFAULT_CONFIG,
     now: datetime | None = None,
     caller_id: str = "default",
+    index: EmbeddingIndex | None = None,
 ) -> RetrievalResult:
     """Retrieve the top-k grains most relevant to query.
 
@@ -298,7 +301,7 @@ def flux_retrieve(
     fallback_triggered = False
 
     if confidence < cfg.FALLBACK_CONFIDENCE_THRESHOLD:
-        merged = vector_fallback(store, query, emb, result.activated, cfg=cfg)
+        merged = vector_fallback(store, query, emb, result.activated, cfg=cfg, index=index)
         result = PropagationResult(
             activated=merged,
             trace=result.trace,
