@@ -52,15 +52,15 @@ _HEALTHY_RANGES: dict[str, dict] = {
         "min": 5,
         "max": None,
         "warmup_retrievals": 100,
-        "severity": "WARNING",
-        "suggestion": "Reinforcement may be broken. Check LEARNING_RATE.",
+        "severity": "INFO",
+        "suggestion": "No conduits have crossed the highway threshold yet. Repeated useful retrievals are needed.",
     },
     "highway_growth_rate": {
         "window": "long",
         "min": 0.1,
         "max": 20,
         "warmup_days": 14,
-        "severity": "WARNING",
+        "severity": "INFO",
         "suggestion": "Queries may not be repeating enough to form highways.",
     },
     "shortcut_creation_rate": {
@@ -92,7 +92,7 @@ _HEALTHY_RANGES: dict[str, dict] = {
         "min": 0.001,
         "max": None,
         "warmup_days": 14,
-        "severity": "WARNING",
+        "severity": "INFO",
         "suggestion": "Cluster logic or PROMOTION_THRESHOLD may be wrong.",
     },
     "avg_hops_per_retrieval": {
@@ -156,7 +156,7 @@ _HEALTHY_RANGES: dict[str, dict] = {
         "min": 0.05,
         "max": 0.40,
         "warmup_days": 14,
-        "severity": "WARNING",
+        "severity": "INFO",
         "suggestion": "Too many grains being orphaned. Check bootstrap and reinforcement.",
     },
 }
@@ -206,6 +206,41 @@ def _display_client(client: str) -> str:
     return " ".join(part.capitalize() for part in parts) if parts else "Unknown"
 
 
+def _is_codex_suggestion_prompt(query: str) -> bool:
+    if "ambient suggestions" in query:
+        return True
+    if "hyperpersonalized" in query and "suggestions" in query:
+        return True
+    return (
+        re.match(r"^generate\s+0\s*(?:to|-)\s*3\b", query) is not None
+        and "suggestions" in query
+        and "codex" in query
+        and "local project" in query
+    )
+
+
+def _is_codex_diagnostic_prompt(query: str) -> bool:
+    return (
+        "flux diagnostic" in query
+        or "smoke test" in query
+        or "timing check" in query
+        or "retrieve verification" in query
+        or "rest retrieve verification" in query
+        or "mcp retrieve verification" in query
+        or query.startswith("post restart")
+        or query.startswith("final post-")
+    )
+
+
+def should_auto_close_retrieval_feedback(caller_id: str | None, query: str) -> bool:
+    """Return True for known background lookups with no feedback channel."""
+    identity = caller_identity(caller_id, query)
+    return (
+        identity["caller_id"] == "codex:background_lookup"
+        and _is_codex_suggestion_prompt(str(query or "").strip().lower())
+    )
+
+
 def compose_caller_id(
     client: str | None = None,
     role: str | None = None,
@@ -214,7 +249,9 @@ def compose_caller_id(
 ) -> str:
     """Return the portable caller_id form: arbitrary client + controlled role."""
     if client or role:
-        resolved_client = _slug(client or fallback, "unknown")
+        fallback_text = str(fallback or "").strip()
+        fallback_client = fallback_text.split(":", 1)[0] if ":" in fallback_text else fallback_text
+        resolved_client = _slug(client or fallback_client, "unknown")
         resolved_role = _caller_role(role, "chat")
         return f"{resolved_client}:{resolved_role}"
     return str(fallback or "unknown").strip() or "unknown"
@@ -232,18 +269,39 @@ def caller_identity(
 
     if client or role:
         client_id, role_id = compose_caller_id(client, role, fallback=caller_id).split(":", 1)
+        if client_id in {"codex", "codex_chat"} and role_id == "chat":
+            if _is_codex_suggestion_prompt(query_l):
+                client_id, role_id = "codex", "background_lookup"
+            elif _is_codex_diagnostic_prompt(query_l):
+                client_id, role_id = "codex", "test"
     else:
         raw = str(caller_id or "").strip()
         raw_l = raw.lower()
-        ambient_prompt = "ambient suggestions" in query_l
+        suggestion_prompt = _is_codex_suggestion_prompt(query_l)
+        diagnostic_prompt = _is_codex_diagnostic_prompt(query_l)
         memory_prompt = "memory writing agent" in query_l
+        codex_suggestion_caller = (
+            raw_l in {"codex", "codex:chat", "default", "unknown", "anonymous", ""}
+            or raw_l.startswith("codex_ambient")
+        )
+        codex_diagnostic_caller = raw_l in {
+            "codex",
+            "codex:chat",
+            "codex_chat:chat",
+            "default",
+            "unknown",
+            "anonymous",
+            "",
+        }
 
         if (
             raw_l == "ambient_suggestions"
             or raw_l.startswith("codex_ambient")
-            or (raw_l in {"codex", "default", "unknown", "anonymous", ""} and ambient_prompt)
+            or (codex_suggestion_caller and suggestion_prompt)
         ):
             client_id, role_id = "codex", "background_lookup"
+        elif codex_diagnostic_caller and diagnostic_prompt:
+            client_id, role_id = "codex", "test"
         elif (
             raw_l == "memory_writing_agent"
             or (raw_l in {"codex", "default", "unknown", "anonymous", ""} and memory_prompt)
@@ -497,6 +555,11 @@ def _received_feedback_count(
         len(feedback_payload["grain_ids"]) + int(feedback_payload["anonymous_count"]),
         expected,
     )
+
+
+def _counts_toward_retrieval_quality(payload: dict[str, Any]) -> bool:
+    identity = _caller_identity_from_payload(payload)
+    return identity["role"] not in {"background_lookup", "system", "admin", "test"}
 
 
 def _feedback_by_trace_since(
@@ -764,39 +827,57 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
             return 0
         return int(r["traced"] or 0) + int(r["untraced"] or 0)
 
-    def _count_successful_retrievals(cutoff: str) -> int:
-        """Count retrievals that received at least one useful feedback event."""
-        traced = store.conn.execute(
+    def _quality_retrieval_rows(cutoff: str) -> list[tuple[Any, dict[str, Any]]]:
+        rows = store.conn.execute(
             """
-            SELECT COUNT(DISTINCT r.trace_id) AS n
-            FROM events r
-            WHERE r.category='retrieval'
-              AND r.event='grains_returned'
-              AND r.timestamp>=?
-              AND r.trace_id IS NOT NULL
-              AND r.trace_id <> ''
-              AND EXISTS (
-                SELECT 1
-                FROM events f
-                WHERE f.category='feedback'
-                  AND f.event='retrieval_successful'
-                  AND f.timestamp>=?
-                  AND f.trace_id = r.trace_id
-              )
-            """,
-            (cutoff, cutoff),
-        ).fetchone()
-        untraced_retrievals = store.conn.execute(
-            """
-            SELECT COUNT(*) AS n
+            SELECT timestamp, trace_id, data
             FROM events
             WHERE category='retrieval'
               AND event='grains_returned'
               AND timestamp>=?
-              AND (trace_id IS NULL OR trace_id = '')
             """,
             (cutoff,),
-        ).fetchone()
+        ).fetchall()
+        result = []
+        for row in rows:
+            payload = _event_payload(row)
+            if _counts_toward_retrieval_quality(payload):
+                result.append((row, payload))
+        return result
+
+    def _quality_retrieval_count(rows: list[tuple[Any, dict[str, Any]]]) -> int:
+        traced = {
+            row["trace_id"]
+            for row, _ in rows
+            if row["trace_id"]
+        }
+        untraced = sum(1 for row, _ in rows if not row["trace_id"])
+        return len(traced) + untraced
+
+    def _quality_success_count(rows: list[tuple[Any, dict[str, Any]]], cutoff: str) -> int:
+        trace_ids = {
+            row["trace_id"]
+            for row, _ in rows
+            if row["trace_id"]
+        }
+        if trace_ids:
+            placeholders = ",".join("?" for _ in trace_ids)
+            success_rows = store.conn.execute(
+                f"""
+                SELECT DISTINCT trace_id
+                FROM events
+                WHERE category='feedback'
+                  AND event='retrieval_successful'
+                  AND timestamp>=?
+                  AND trace_id IN ({placeholders})
+                """,
+                (cutoff, *trace_ids),
+            ).fetchall()
+            traced_successes = len(success_rows)
+        else:
+            traced_successes = 0
+
+        untraced_retrievals = sum(1 for row, _ in rows if not row["trace_id"])
         untraced_successes = store.conn.execute(
             """
             SELECT COUNT(*) AS n
@@ -809,10 +890,13 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
             (cutoff,),
         ).fetchone()
         legacy_successes = min(
-            int(untraced_retrievals["n"] or 0) if untraced_retrievals else 0,
+            untraced_retrievals,
             int(untraced_successes["n"] or 0) if untraced_successes else 0,
         )
-        return (int(traced["n"] or 0) if traced else 0) + legacy_successes
+        return traced_successes + legacy_successes
+
+    quality_retrievals_short = _quality_retrieval_rows(cutoff_short)
+    quality_retrieval_count_short = _quality_retrieval_count(quality_retrievals_short)
 
     # Highway growth rate: new conduits that crossed weight 0.80 (proxied by
     # reinforce events that set weight above 0.80, logged in feedback events).
@@ -827,7 +911,7 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
 
     # Shortcut creation rate: shortcuts created per 100 retrievals.
     shortcuts = _count("feedback", "shortcut_created", cutoff_short)
-    retrievals_short = _count("retrieval", "grains_returned", cutoff_short) or 1
+    retrievals_short = quality_retrieval_count_short or 1
     signals["shortcut_creation_rate"] = (shortcuts / retrievals_short) * 100
 
     # Conduit dissolution rate: conduits deleted per decay pass in last 24h.
@@ -854,22 +938,38 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
     signals["promotion_events"] = float(_count("feedback", "promotion_triggered", cutoff_long))
 
     # Avg hops per retrieval.
-    hops = store.conn.execute(
-        """
-        SELECT AVG(CAST(json_extract(data, '$.hop_count') AS REAL)) AS a
-        FROM events WHERE category='retrieval' AND event='grains_returned' AND timestamp >= ?
-        """,
-        (cutoff_short,),
-    ).fetchone()
-    signals["avg_hops_per_retrieval"] = float(hops["a"] or 0.0) if hops else 0.0
+    hop_values = []
+    for _, payload in quality_retrievals_short:
+        try:
+            hop_values.append(float(payload.get("hop_count") or 0.0))
+        except (TypeError, ValueError):
+            pass
+    signals["avg_hops_per_retrieval"] = (
+        sum(hop_values) / len(hop_values)
+        if hop_values else 0.0
+    )
 
     # Retrieval success rate: % where at least one grain was marked useful.
-    ret_total = _count_trace_scoped("retrieval", "grains_returned", cutoff_short)
-    ret_success = _count_successful_retrievals(cutoff_short)
+    ret_total = quality_retrieval_count_short
+    ret_success = _quality_success_count(quality_retrievals_short, cutoff_short)
     signals["retrieval_success_rate"] = min(ret_success / ret_total, 1.0) if ret_total > 0 else 0.0
 
     # Fallback trigger rate.
-    fallbacks = _count("retrieval", "fallback_triggered", cutoff_short)
+    fallback_rows = store.conn.execute(
+        """
+        SELECT data
+        FROM events
+        WHERE category='retrieval'
+          AND event='fallback_triggered'
+          AND timestamp>=?
+        """,
+        (cutoff_short,),
+    ).fetchall()
+    fallbacks = sum(
+        1
+        for row in fallback_rows
+        if _counts_toward_retrieval_quality(_event_payload(row))
+    )
     signals["fallback_trigger_rate"] = fallbacks / ret_total if ret_total > 0 else 0.0
 
     # Feedback compliance: % of returned grains that received feedback.

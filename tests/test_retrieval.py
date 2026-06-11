@@ -9,7 +9,7 @@ from flux import Config, FluxStore, Grain, Conduit
 from mocks import MockEmbeddingBackend
 from flux.embedding import store_embedding
 from mocks import MockLLMBackend
-from flux.health import log_event
+from flux.health import log_event, pending_feedback_for_caller
 from flux.retrieval import flux_store, flux_retrieve, flux_feedback, RetrievalResult, FeedbackResult
 
 
@@ -261,6 +261,76 @@ class TestFluxRetrieve:
         )
 
         assert isinstance(result, RetrievalResult)
+
+    def test_codex_hyperpersonalized_suggestion_pending_feedback_does_not_block_chat(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        cfg = Config(FEEDBACK_ENFORCEMENT_GRACE_SECONDS=0)
+        old = _now() - timedelta(seconds=1)
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {
+                "query": (
+                    "Generate 0 to 3 hyperpersonalized suggestions for what this user "
+                    "can do with Codex in this local project"
+                ),
+                "grain_ids": ["g1"],
+                "grains_count": 1,
+                "caller_id": "codex:chat",
+            },
+            trace_id="trace-hyperpersonalized",
+            now=old,
+        )
+
+        result = flux_retrieve(
+            "next real chat query",
+            store=store,
+            llm=llm,
+            emb=emb,
+            cfg=cfg,
+            caller_id="codex:chat",
+        )
+
+        assert isinstance(result, RetrievalResult)
+
+    def test_codex_background_suggestion_retrieval_auto_closes_feedback(self, store):
+        llm = MockLLMBackend()
+        emb = MockEmbeddingBackend()
+        cfg = Config(FEEDBACK_ENFORCEMENT_GRACE_SECONDS=0)
+        flux_store("Codex can inspect local project files", store=store, llm=llm, emb=emb, cfg=cfg)
+
+        result = flux_retrieve(
+            "Generate 0 to 3 hyperpersonalized Codex suggestions for local project",
+            store=store,
+            llm=llm,
+            emb=emb,
+            cfg=cfg,
+            caller_id="codex:chat",
+        )
+
+        assert result.grains
+        pending = pending_feedback_for_caller(
+            store,
+            "codex:background_lookup",
+            _now() + timedelta(seconds=2),
+            grace_seconds=0,
+        )
+        assert pending["missing"] == 0
+
+        rows = store.conn.execute(
+            """
+            SELECT data
+            FROM events
+            WHERE category='feedback'
+              AND event='feedback_received'
+              AND trace_id=?
+            """,
+            (result.trace_id,),
+        ).fetchall()
+        assert len(rows) == len(result.grains)
+        assert all('"auto_closed": true' in row["data"] for row in rows)
 
     def test_feedback_clears_pending_retrieval_block(self, store):
         llm = MockLLMBackend()

@@ -32,7 +32,12 @@ from .extraction import (
     store_atomic_grain_ex,
 )
 from .graph import Grain, Trace, new_id, utcnow
-from .health import log_event, normalize_caller_id, pending_feedback_for_caller
+from .health import (
+    log_event,
+    normalize_caller_id,
+    pending_feedback_for_caller,
+    should_auto_close_retrieval_feedback,
+)
 from .llm import LLMBackend
 from .clustering import record_entry_cooccurrence
 from .promotion import check_promotion
@@ -362,6 +367,20 @@ def flux_retrieve(
         "expansion_count": len(expansion_candidates),
         "trace_id": trace.id,
     }, trace_id=trace.id, now=now, caller_id=caller_id)
+
+    if grains_out and should_auto_close_retrieval_feedback(caller_id, query):
+        for grain in grains_out:
+            log_event(store, "feedback", "feedback_received", {
+                "trace_id": trace.id,
+                "grain_id": grain["id"],
+                "useful": False,
+                "effective_signal": 0.0,
+                "provenance": grain["provenance"],
+                "usefulness_ratio": 0.0,
+                "action": "auto_closed",
+                "auto_closed": True,
+                "reason": "background_lookup_without_feedback_channel",
+            }, trace_id=trace.id, now=now, caller_id=caller_id)
 
     return RetrievalResult(
         grains=grains_out,
