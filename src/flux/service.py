@@ -356,7 +356,8 @@ class FluxService:
 
     def _health_tick_loop(self) -> None:
         """Compute health on a timer so warnings fire alerts even when nothing
-        is polling the dashboard or MCP health tool."""
+        is polling the dashboard or MCP health tool. Also hosts the dream
+        cycle scheduler (consolidation runs in the daemon, never in callers)."""
         interval = self._cfg.HEALTH_TICK_MINUTES * 60.0
         while not self._health_tick_stop.wait(interval):
             try:
@@ -367,6 +368,39 @@ class FluxService:
                 self._index.refresh(self._store)
             except Exception as exc:
                 logger.error("embedding index refresh failed: %s", exc)
+            try:
+                self._maybe_dream()
+            except Exception as exc:
+                logger.error("dream cycle failed: %s", exc)
+
+    def _maybe_dream(self) -> None:
+        """Run a dream cycle if DREAM_INTERVAL_HOURS have passed since the last."""
+        if not self._cfg.DREAM_ENABLED:
+            return
+        from datetime import datetime, timedelta
+        with self._store.lock():
+            self._store.conn.execute(
+                "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+            row = self._store.conn.execute(
+                "SELECT value FROM meta WHERE key='dream_last_run'").fetchone()
+        if row and row["value"]:
+            try:
+                last = datetime.fromisoformat(row["value"])
+                from .graph import utcnow
+                if utcnow() - last < timedelta(hours=self._cfg.DREAM_INTERVAL_HOURS):
+                    return
+            except ValueError:
+                pass
+        from .consolidation import dream_cycle
+        from .graph import utcnow
+        logger.info("dream cycle starting")
+        with self._store.lock():
+            dream_cycle(self._store, self._llm, self._emb, cfg=self._cfg,
+                        index=self._index)
+            self._store.conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('dream_last_run', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (utcnow().isoformat(),))
 
     def _feedback_worker(self) -> None:
         while True:

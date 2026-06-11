@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS grains (
     status          TEXT NOT NULL DEFAULT 'active',   -- active | dormant | archived | quarantined | pending_deletion
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     dormant_since   TEXT,
-    context_spread  INTEGER NOT NULL DEFAULT 0
+    context_spread  INTEGER NOT NULL DEFAULT 0,
+    source_tags     TEXT NOT NULL DEFAULT '[]'  -- JSON list; e.g. ["consolidated"]
 );
 
 CREATE TABLE IF NOT EXISTS conduits (

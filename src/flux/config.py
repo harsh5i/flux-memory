@@ -151,6 +151,19 @@ class Config:
     ALERT_TELEGRAM_CHAT_ID: str = ""
     ALERT_MIN_INTERVAL_HOURS: float = 6.0
 
+    # --- Dream cycle (consolidation) ---
+    # Periodically, the service finds dense clumps of semantically-related
+    # working grains and synthesizes ONE higher-level grain via the configured
+    # LLM backend — encode → decay → consolidate. Sources are linked as
+    # evidence and keep decaying naturally; nothing is deleted.
+    DREAM_ENABLED: bool = True
+    DREAM_INTERVAL_HOURS: float = 24.0
+    DREAM_MIN_CLUSTER: int = 6          # smallest clump worth consolidating
+    DREAM_SIMILARITY: float = 0.75      # cosine for clump membership
+    DREAM_CENTROID_MIN: float = 0.78    # synthesis must embed this close to clump centroid
+    DREAM_MAX_PER_CYCLE: int = 3        # consolidations per dream cycle
+    DREAM_MIN_GRAIN_AGE_HOURS: float = 24.0
+
     # --- Provenance reinforcement multipliers (Section 7.2) ---
     def provenance_multiplier(self, provenance: str) -> float:
         return {

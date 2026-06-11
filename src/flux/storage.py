@@ -63,6 +63,11 @@ class FluxStore:
     def _ensure_schema(self) -> None:
         sql = _SCHEMA_PATH.read_text()
         self.conn.executescript(sql)
+        # Additive migration for databases created before source_tags existed.
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(grains)")}
+        if "source_tags" not in cols:
+            self.conn.execute(
+                "ALTER TABLE grains ADD COLUMN source_tags TEXT NOT NULL DEFAULT '[]'")
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
