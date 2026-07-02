@@ -578,7 +578,13 @@ def _received_feedback_count(
 
 def _counts_toward_retrieval_quality(payload: dict[str, Any]) -> bool:
     identity = _caller_identity_from_payload(payload)
-    return identity["role"] not in {"background_lookup", "system", "admin", "test"}
+    # background_lookup is legitimate retrieval traffic (it issues real queries
+    # and returns feedback), so it counts toward quality signals. Only synthetic
+    # / privileged roles are excluded. Excluding background_lookup made the
+    # quality denominator collapse to ~0 in production (traffic is ~95%
+    # background_lookup), producing a chronic false 0.0 retrieval_success_rate
+    # warning and an inflated shortcut_creation_rate.
+    return identity["role"] not in {"system", "admin", "test"}
 
 
 def _feedback_by_trace_since(
@@ -974,9 +980,12 @@ def _compute_event_signals(store: FluxStore, now: datetime) -> dict[str, float]:
     )
 
     # Retrieval success rate: % where at least one grain was marked useful.
+    # With no quality retrievals in the window there is nothing to score; report
+    # 1.0 (no observed failures) rather than 0.0, which would trip a false
+    # WARNING during idle windows.
     ret_total = quality_retrieval_count_short
     ret_success = _quality_success_count(quality_retrievals_short, cutoff_short)
-    signals["retrieval_success_rate"] = min(ret_success / ret_total, 1.0) if ret_total > 0 else 0.0
+    signals["retrieval_success_rate"] = min(ret_success / ret_total, 1.0) if ret_total > 0 else 1.0
 
     # Fallback trigger rate.
     fallback_rows = store.conn.execute(
