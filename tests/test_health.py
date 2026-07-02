@@ -211,7 +211,7 @@ class TestComputeEventSignals:
         sigs = _compute_event_signals(store, now)
         assert sigs["fallback_trigger_rate"] == pytest.approx(0.5)
 
-    def test_retrieval_quality_ignores_background_and_test_lookups(self, store):
+    def test_retrieval_quality_includes_background_excludes_privileged_lookups(self, store):
         now = _now()
         log_event(
             store,
@@ -266,9 +266,32 @@ class TestComputeEventSignals:
 
         sigs = _compute_event_signals(store, now)
 
-        assert sigs["retrieval_success_rate"] == pytest.approx(1.0)
+        # chat-1 (success) and bg-1 (no feedback) both count toward quality;
+        # the codex:test retrieval is excluded. So 1 success / 2 retrievals.
+        assert sigs["retrieval_success_rate"] == pytest.approx(0.5)
+        # The fallback event is from the excluded test role -> 0 fallbacks.
         assert sigs["fallback_trigger_rate"] == pytest.approx(0.0)
-        assert sigs["avg_hops_per_retrieval"] == pytest.approx(1.0)
+        # Hops averaged over the two counted retrievals: (1 + 5) / 2.
+        assert sigs["avg_hops_per_retrieval"] == pytest.approx(3.0)
+
+    def test_retrieval_success_rate_idle_window_is_healthy(self, store):
+        # No quality retrievals in the window: there is nothing to score, so the
+        # rate must report 1.0 (no observed failures) rather than 0.0, which
+        # would otherwise trip a false WARNING during idle periods.
+        now = _now()
+        log_event(
+            store,
+            "retrieval",
+            "grains_returned",
+            {"hop_count": 1, "caller_id": "system:system"},
+            trace_id="sys-1",
+            now=now,
+        )
+
+        sigs = _compute_event_signals(store, now)
+
+        assert sigs["retrieval_success_rate"] == pytest.approx(1.0)
+        assert _is_healthy("retrieval_success_rate", sigs["retrieval_success_rate"], Config())
 
 
 # ===================================================================== _is_healthy
